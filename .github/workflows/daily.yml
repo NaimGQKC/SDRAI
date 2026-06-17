@@ -1,0 +1,58 @@
+name: daily-hitlist
+
+on:
+  schedule:
+    # 06:00 UTC, Mon–Fri. Adjust to your morning (this is the cron's run time in UTC).
+    - cron: "0 6 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # needed to commit tracker.csv back to the repo
+
+jobs:
+  hitlist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Claude Code
+        # The cron drafts via `claude -p` (no Anthropic API key). Auth comes from
+        # CLAUDE_CODE_OAUTH_TOKEN (generate locally with: claude setup-token).
+        run: npm install -g @anthropic-ai/claude-code
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run engine
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PERPLEXITY_API_KEY:      ${{ secrets.PERPLEXITY_API_KEY }}
+          APOLLO_API_KEY:          ${{ secrets.APOLLO_API_KEY }}
+          GMAIL_ADDRESS:           ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD:      ${{ secrets.GMAIL_APP_PASSWORD }}
+          DIGEST_TO:               ${{ secrets.DIGEST_TO }}
+        run: python main.py --no-mocks
+
+      - name: Commit tracker back
+        run: |
+          git config user.name  "hitlist-bot"
+          git config user.email "actions@github.com"
+          git add tracker.csv warm_path.csv || true
+          git diff --staged --quiet || git commit -m "tracker: $(date -u +%F)"
+          git push
+
+      - name: Upload digest artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest
+          path: digest_*.html
+          if-no-files-found: ignore

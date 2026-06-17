@@ -1,0 +1,25 @@
+run:
+  people_per_day: 8
+  # How drafts get written:
+  #   claude_cli -> shells out to `claude -p` (Claude Code). $0, no Anthropic API key.
+  #                 Uses your Pro login locally; CLAUDE_CODE_OAUTH_TOKEN in CI.
+  #   api        -> Anthropic API (needs ANTHROPIC_API_KEY). Fallback only.
+  #   mock       -> canned sample drafts (also forced by --mocks).
+  draft_backend: claude_cli
+  draft_model: claude-sonnet-4-6        # passed to `claude -p --model`; opus for max quality
+  research_model: sonar-pro
+  reveal_emails: false                  # true = spend an Apollo enrichment credit per queued person
+
+# Apollo person_seniorities (allowed values: owner, founder, c_suite, partner, vp,
+# head, director, manager, senior, entry, intern)
+seniority_include: ["head", "director", "senior", "manager"]
+
+# Post-filter: any person whose title contains one of these is routed to warm_path.csv,
+# never the cold queue (HARD CONSTRAINT #2).
+seniority_exclude_titles: ["founder", "co-founder", "ceo", "cto", "chief", "vp", "president", "owner"]
+
+targets:
+  - {company: Profound,  domain: tryprofound.com, roles: ["Forward Deployed Engineer", "Solutions Engineer", "Agent Engineer"]}
+  - {company: AthenaHQ,  domain: athenahq.ai,     roles: ["Forward Deployed Engineer", "Solutions Engineer"]}
+  # add Evertune, Otterly, etc.
+  # - {company: Evertune, domain: evertune.ai, roles: ["Forward Deployed Engineer", "Solutions Engineer"]}

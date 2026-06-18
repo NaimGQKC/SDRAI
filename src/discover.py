@@ -19,6 +19,7 @@ API reference (docs.peopledatalabs.com/docs/person-search-api):
 """
 from __future__ import annotations
 
+import csv
 import os
 import time
 
@@ -26,6 +27,11 @@ import requests
 
 PDL_SEARCH_URL = "https://api.peopledatalabs.com/v5/person/search"
 PDL_ENRICH_URL = "https://api.peopledatalabs.com/v5/person/enrich"
+
+# Seed file: a hand-/Clay-/agent-built list of people. The engine reads this instead of
+# hitting PDL when run.discovery_source == "seed". Decouples discovery (flexible, free)
+# from the valuable automated part (deep research + draft). Lives at the repo root.
+SEED_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "people_seed.csv")
 
 # PDL's free tier is tightly rate-limited; space calls out and retry once on 429.
 _MIN_INTERVAL = 1.5
@@ -156,6 +162,57 @@ def discover(target: dict, cfg: dict, use_mocks: bool = True) -> tuple[list[dict
             p["company"] = target["company"]
         (warm_path if _is_excluded(p["title"], exclude) else queue).append(p)
     return queue, warm_path
+
+
+def discover_from_seed(cfg: dict, seed_path: str | None = None) -> tuple[list[dict], list[dict]]:
+    """Read people from people_seed.csv -> (queue, warm_path).
+
+    The CSV needs at minimum `name` and `company`; everything else is optional and just
+    gives the research step a head start. No API, no credits — you (or Clay, or an agent)
+    fill the file, the engine does the deep work. Same warm-path rule as PDL discovery.
+    """
+    exclude = cfg["seniority_exclude_titles"]
+    path = seed_path or SEED_PATH
+    if not os.path.exists(path):
+        print(f"[seed] no seed file at {path} — add people_seed.csv with name,company rows.")
+        return [], []
+
+    queue, warm_path = [], []
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            p = _person_from_seed(row)
+            if not p:
+                continue
+            (warm_path if _is_excluded(p["title"], exclude) else queue).append(p)
+    print(f"[seed] loaded {len(queue) + len(warm_path)} people from {os.path.basename(path)}")
+    return queue, warm_path
+
+
+def _person_from_seed(row: dict) -> dict | None:
+    """One CSV row -> our flat person contract. Requires name + company; rest optional."""
+    name = (row.get("name") or "").strip()
+    company = (row.get("company") or "").strip()
+    if not name or not company:
+        return None
+    parts = name.split()
+    return {
+        "name": name,
+        "title": (row.get("title") or "").strip(),
+        "company": company,
+        "domain": (row.get("domain") or "").strip() or None,
+        "linkedin": _normalize_linkedin((row.get("linkedin") or "").strip() or None),
+        "github": _to_url((row.get("github") or "").strip() or None),
+        "twitter": _to_url((row.get("twitter") or "").strip() or None),
+        "email": None,
+        "location": (row.get("location") or "").strip() or None,
+        "prior": [],
+        "education": [],
+        "skills": [],
+        "interests": [],
+        "_pdl_id": None,
+        "_first_name": parts[0] if parts else None,
+        "_last_name": parts[-1] if len(parts) > 1 else None,
+    }
 
 
 def _search_pdl(target: dict, cfg: dict, api_key: str) -> list[dict]:

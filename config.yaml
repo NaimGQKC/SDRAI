@@ -1,9 +1,11 @@
 run:
-  # PDL free tier is ~100 records/month and search costs ~1 credit per record
-  # returned, so keep this small and run a few times a week (see .github/workflows).
-  # Bump it once you're on a paid PDL plan.
+  # Where the "find people" step gets its names:
+  #   seed -> read people_seed.csv (you / Clay export / an agent fill it). $0, no API,
+  #           no vendor wall. The engine still does the deep research + draft.
+  #   pdl  -> People Data Labs Person Search API (needs PDL_API_KEY; free tier is tiny).
+  discovery_source: seed
   people_per_day: 5
-  search_size: 6          # max records pulled per company per run (PDL credit guard)
+  search_size: 6          # [pdl only] max records pulled per company per run (credit guard)
   # How drafts get written:
   #   claude_cli -> shells out to `claude -p` (Claude Code). $0, no Anthropic API key.
   #                 Uses your Pro login locally; CLAUDE_CODE_OAUTH_TOKEN in CI.

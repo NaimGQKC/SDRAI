@@ -1,0 +1,8 @@
+# EXAMPLE of how to fill people_seed.csv. Copy rows into people_seed.csv (NOT this file)
+# and replace with real people. Only `name` and `company` are required — leave the rest
+# blank if you don't have them; the research step finds what it can from the open web.
+# The more you provide (github/twitter especially), the deeper the dossier.
+name,company,domain,title,github,linkedin,twitter,location
+Maya Chen,Nuclia,nuclia.com,Senior Solutions Engineer,github.com/mayachen,,x.com/mayachen,Barcelona
+Devin Park,Dust,dust.tt,Forward Deployed Engineer,,linkedin.com/in/devin-park,,Paris
+Alex Rivera,Mistral AI,mistral.ai,,,,,

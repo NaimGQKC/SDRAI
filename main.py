@@ -58,35 +58,50 @@ def run(use_mocks: bool, limit: int | None, open_html: bool = False) -> str:
     items: list[dict] = []
     all_warm: list[dict] = []
 
-    for target in cfg["targets"]:
-        if len(items) >= target_count:
-            break
-        queue, warm_path = discover_mod.discover(target, cfg, use_mocks=use_mocks)
-        all_warm.extend(warm_path)
-        print(f"[discover] {target['company']}: {len(queue)} queue-eligible, "
-              f"{len(warm_path)} warm-path")
+    def consider(person: dict) -> bool:
+        """Research + draft one person; append to items if usable. Returns True if added."""
+        if tracker.already_seen(person.get("linkedin"), person["name"], person["company"]):
+            print(f"  [skip] already seen: {person['name']}")
+            return False
 
+        intel = research_mod.research(person, cfg, use_mocks=use_mocks)
+        draft = match_mod.match_draft(profile, person, intel["content"], cfg, use_mocks=use_mocks)
+
+        # HARD CONSTRAINT #3: no fabrication. Drop low-confidence people from the queue.
+        if draft["tier"] not in ("A", "B", "C") or not draft["dms"]:
+            print(f"  [drop] low_confidence: {person['name']}")
+            return False
+
+        # Reveal an email only for survivors we'll actually contact (conserve credits).
+        if not use_mocks and cfg["run"].get("reveal_emails"):
+            person["email"] = discover_mod.enrich_email(person, use_mocks=use_mocks)
+
+        items.append({"person": person, "research": intel, "draft": draft})
+        print(f"  [queue] {person['name']} — tier {draft['tier']}")
+        return True
+
+    source = cfg["run"].get("discovery_source", "seed")
+    if source == "seed":
+        # Discovery is a flat, pre-built list (you / Clay / an agent). No API, no credits.
+        queue, warm_path = discover_mod.discover_from_seed(cfg)
+        all_warm.extend(warm_path)
         for person in queue:
             if len(items) >= target_count:
                 break
-            if tracker.already_seen(person.get("linkedin"), person["name"], person["company"]):
-                print(f"  [skip] already seen: {person['name']}")
-                continue
-
-            intel = research_mod.research(person, cfg, use_mocks=use_mocks)
-            draft = match_mod.match_draft(profile, person, intel["content"], cfg, use_mocks=use_mocks)
-
-            # HARD CONSTRAINT #3: no fabrication. Drop low-confidence people from the queue.
-            if draft["tier"] not in ("A", "B", "C") or not draft["dms"]:
-                print(f"  [drop] low_confidence: {person['name']}")
-                continue
-
-            # Reveal an email only for survivors we'll actually contact (conserve PDL credits).
-            if not use_mocks and cfg["run"].get("reveal_emails"):
-                person["email"] = discover_mod.enrich_email(person, use_mocks=use_mocks)
-
-            items.append({"person": person, "research": intel, "draft": draft})
-            print(f"  [queue] {person['name']} — tier {draft['tier']}")
+            consider(person)
+    else:
+        # PDL: discover company-by-company, stopping early to spare API credits.
+        for target in cfg["targets"]:
+            if len(items) >= target_count:
+                break
+            queue, warm_path = discover_mod.discover(target, cfg, use_mocks=use_mocks)
+            all_warm.extend(warm_path)
+            print(f"[discover] {target['company']}: {len(queue)} queue-eligible, "
+                  f"{len(warm_path)} warm-path")
+            for person in queue:
+                if len(items) >= target_count:
+                    break
+                consider(person)
 
     html = build_digest(items, date)
     out_path = os.path.join(ROOT, f"digest_{date}.html")

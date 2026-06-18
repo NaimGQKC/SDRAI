@@ -1,5 +1,9 @@
 run:
-  people_per_day: 8
+  # PDL free tier is ~100 records/month and search costs ~1 credit per record
+  # returned, so keep this small and run a few times a week (see .github/workflows).
+  # Bump it once you're on a paid PDL plan.
+  people_per_day: 5
+  search_size: 6          # max records pulled per company per run (PDL credit guard)
   # How drafts get written:
   #   claude_cli -> shells out to `claude -p` (Claude Code). $0, no Anthropic API key.
   #                 Uses your Pro login locally; CLAUDE_CODE_OAUTH_TOKEN in CI.
@@ -8,18 +12,18 @@ run:
   draft_backend: claude_cli
   draft_model: claude-sonnet-4-6        # passed to `claude -p --model`; opus for max quality
   research_model: sonar-pro
-  reveal_emails: false                  # true = spend an Apollo enrichment credit per queued person
+  reveal_emails: false                  # true = spend a PDL enrichment credit per queued person
 
-# Apollo person_seniorities (allowed values: owner, founder, c_suite, partner, vp,
-# head, director, manager, senior, entry, intern)
-seniority_include: ["head", "director", "senior", "manager"]
+# PDL job_title_levels to keep (valid values: cxo, vp, director, manager, senior,
+# partner, owner, entry, training, unpaid). We target hiring managers + senior peers.
+seniority_include: ["director", "manager", "senior"]
 
 # Post-filter: any person whose title contains one of these is routed to warm_path.csv,
 # never the cold queue (HARD CONSTRAINT #2).
 seniority_exclude_titles: ["founder", "co-founder", "ceo", "cto", "chief", "vp", "president", "owner"]
 
 # Broad role set — Alejandro is open to forward-deployed, solutions, applied-AI,
-# consulting, product and analyst roles. Apollo matches these as person_titles; the
+# consulting, product and analyst roles. PDL matches these against job_title; the
 # seniority_include filter above keeps results at peer / hiring-manager level.
 # (Top-level key is ignored by the code; it only exists to anchor the list below.)
 role_sets:
@@ -34,26 +38,47 @@ role_sets:
     - Founding Engineer
     - Analyst
 
-# EUROPE ONLY. Every company below is European-HQ'd (city in the comment). main.py
-# fills the daily list top-down and stops at people_per_day, so strongest-match /
-# best-fit companies come first; the rest are backfill + dedup overflow across days.
+# EUROPE ONLY, Spain first. Every company is European-HQ'd (city in the comment).
+# main.py fills the daily list top-down and stops at people_per_day, so Spanish
+# companies get priority; the rest are backfill + dedup overflow across days.
 targets:
-  # --- European GEO/AEO (the "I built your product" angle — VisiMind) ---
-  - {company: Peec AI,    domain: peec.ai,        roles: *broad}   # Berlin
-  - {company: Otterly,    domain: otterly.ai,     roles: *broad}   # Austria / EU (Gartner Cool Vendor)
+  # ===== SPAIN (focus) =====
+  - {company: Nuclia,      domain: nuclia.com,            roles: *broad}   # Barcelona — agentic RAG / AI search ⭐
+  - {company: Lang.ai,     domain: lang.ai,               roles: *broad}   # Madrid — AI support automation ⭐
+  - {company: Red Points,  domain: redpoints.com,         roles: *broad}   # Barcelona — brand protection / scraping ⭐
+  - {company: Prosper AI,  domain: getprosper.ai,         roles: *broad}   # Barcelona — healthcare voice agents
+  - {company: Hubtype,     domain: hubtype.com,           roles: *broad}   # Barcelona — conversational app platform
+  - {company: Genesy,      domain: genesy.ai,             roles: *broad}   # Barcelona — AI sales agents
+  - {company: Clarity AI,  domain: clarity.ai,            roles: *broad}   # Madrid — ESG data + AI
+  - {company: Sherpa.ai,   domain: sherpa.ai,             roles: *broad}   # Bilbao — privacy / federated AI
+  - {company: Seedtag,     domain: seedtag.com,           roles: *broad}   # Madrid — contextual AI advertising
+  - {company: Multiverse Computing, domain: multiversecomputing.com, roles: *broad}  # San Sebastián — model compression
+  - {company: Factorial,   domain: factorialhr.com,       roles: *broad}   # Barcelona — HR SaaS + AI
+  - {company: Landbot,     domain: landbot.io,            roles: *broad}   # Barcelona — chatbot builder
+  - {company: Narrativa,   domain: narrativa.com,         roles: *broad}   # Madrid — generative NLP
+  - {company: Allread,     domain: allread.ai,            roles: *broad}   # Barcelona — computer vision
+  - {company: TravelPerk,  domain: travelperk.com,        roles: *broad}   # Barcelona — travel SaaS + AI
 
-  # --- European agentic / Claude-native (Dust uses Claude; n8n = his n8n + agentic work) ---
-  - {company: Dust,       domain: dust.tt,        roles: *broad}   # Paris
-  - {company: n8n,        domain: n8n.io,         roles: *broad}   # Berlin
+  # ===== FRANCE =====
+  - {company: Dust,        domain: dust.tt,               roles: *broad}   # Paris — agentic / Claude-native ⭐
+  - {company: Mistral AI,  domain: mistral.ai,            roles: *broad}   # Paris / EMEA
+  - {company: Poolside,    domain: poolside.ai,           roles: *broad}   # Paris — AI coding
+  - {company: Photoroom,   domain: photoroom.com,         roles: *broad}   # Paris
+  - {company: Hugging Face, domain: huggingface.co,       roles: *broad}   # Paris / NY
 
-  # --- European AI-native / applied-AI shops with forward-deployed + consulting work ---
-  - {company: Mistral AI, domain: mistral.ai,     roles: *broad}   # Paris / EMEA
-  - {company: ElevenLabs, domain: elevenlabs.io,  roles: *broad}   # London
-  - {company: Aleph Alpha, domain: aleph-alpha.com, roles: *broad} # Heidelberg (sovereign/enterprise LLM)
-  - {company: Prosper AI, domain: getprosper.ai,  roles: *broad}   # Barcelona — near your warm spot
-  - {company: Lovable,    domain: lovable.dev,    roles: *broad}   # Stockholm
-  - {company: Synthesia,  domain: synthesia.io,   roles: *broad}   # London
-  - {company: DeepL,      domain: deepl.com,      roles: *broad}   # Cologne
-  - {company: Qdrant,     domain: qdrant.tech,    roles: *broad}   # Berlin
-  - {company: Photoroom,  domain: photoroom.com,  roles: *broad}   # Paris
-  - {company: Poolside,   domain: poolside.ai,    roles: *broad}   # Paris
+  # ===== GERMANY =====
+  - {company: Peec AI,     domain: peec.ai,               roles: *broad}   # Berlin — GEO/AEO ⭐
+  - {company: n8n,         domain: n8n.io,                roles: *broad}   # Berlin — agentic automation ⭐
+  - {company: Aleph Alpha, domain: aleph-alpha.com,       roles: *broad}   # Heidelberg — sovereign/enterprise LLM
+  - {company: DeepL,       domain: deepl.com,             roles: *broad}   # Cologne
+  - {company: Parloa,      domain: parloa.com,            roles: *broad}   # Berlin — voice agents
+
+  # ===== UK =====
+  - {company: ElevenLabs,  domain: elevenlabs.io,         roles: *broad}   # London
+  - {company: Synthesia,   domain: synthesia.io,          roles: *broad}   # London
+  - {company: Faculty,     domain: faculty.ai,            roles: *broad}   # London — applied-AI consultancy ⭐
+
+  # ===== NORDICS / AUSTRIA =====
+  - {company: Lovable,     domain: lovable.dev,           roles: *broad}   # Stockholm
+  - {company: Sana,        domain: sanalabs.com,          roles: *broad}   # Stockholm — enterprise AI
+  - {company: Otterly,     domain: otterly.ai,            roles: *broad}   # Austria — GEO/AEO ⭐

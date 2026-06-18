@@ -20,10 +20,33 @@ API reference (docs.peopledatalabs.com/docs/person-search-api):
 from __future__ import annotations
 
 import os
+import time
+
 import requests
 
 PDL_SEARCH_URL = "https://api.peopledatalabs.com/v5/person/search"
 PDL_ENRICH_URL = "https://api.peopledatalabs.com/v5/person/enrich"
+
+# PDL's free tier is tightly rate-limited; space calls out and retry once on 429.
+_MIN_INTERVAL = 1.5
+_last_call = 0.0
+
+
+def _pdl_request(method: str, url: str, api_key: str, **kwargs) -> requests.Response:
+    """Throttled PDL call with a single 429 backoff. Caller checks status_code."""
+    global _last_call
+    headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
+    resp = None
+    for attempt in range(3):
+        wait = _MIN_INTERVAL - (time.monotonic() - _last_call)
+        if wait > 0:
+            time.sleep(wait)
+        resp = requests.request(method, url, headers=headers, timeout=30, **kwargs)
+        _last_call = time.monotonic()
+        if resp.status_code != 429:
+            return resp
+        time.sleep(2 * (attempt + 1))  # 2s, 4s
+    return resp
 
 
 def _is_excluded(title: str, exclude_titles: list[str]) -> bool:
@@ -144,20 +167,20 @@ def _search_pdl(target: dict, cfg: dict, api_key: str) -> list[dict]:
     levels = cfg.get("seniority_include") or ["director", "manager", "senior"]
     must.append({"terms": {"job_title_levels": [lvl.lower() for lvl in levels]}})
 
+    # Require at least one role keyword in the title. A nested bool with only `should`
+    # clauses means "match >= 1" by default — PDL rejects an explicit minimum_should_match.
     role_should = [{"match": {"job_title": role}} for role in target.get("roles", [])]
-    query: dict = {"bool": {"must": must}}
     if role_should:
-        query["bool"]["should"] = role_should
-        query["bool"]["minimum_should_match"] = 1
+        must.append({"bool": {"should": role_should}})
+    query: dict = {"bool": {"must": must}}
 
     size = cfg["run"].get("search_size") or cfg["run"]["people_per_day"]
     body = {"query": query, "size": max(1, min(int(size), 100)), "dataset": "all"}
-    headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
 
     # One bad query (or a rate/credit limit) shouldn't kill the whole run — log PDL's own
     # error message (a 4xx costs no credits) and let the other companies proceed.
     try:
-        resp = requests.post(PDL_SEARCH_URL, json=body, headers=headers, timeout=30)
+        resp = _pdl_request("POST", PDL_SEARCH_URL, api_key, json=body)
     except requests.RequestException as e:
         print(f"  [warn] PDL search failed for {target['company']}: {e}")
         return []
@@ -187,9 +210,8 @@ def enrich_email(person: dict, use_mocks: bool = True) -> str | None:
         params["last_name"] = person.get("_last_name")
         params["company"] = person.get("company")
 
-    headers = {"X-Api-Key": api_key}
     try:
-        resp = requests.get(PDL_ENRICH_URL, params=params, headers=headers, timeout=30)
+        resp = _pdl_request("GET", PDL_ENRICH_URL, api_key, params=params)
         resp.raise_for_status()
         return _first_email(resp.json().get("data") or {})
     except requests.RequestException:

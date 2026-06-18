@@ -32,6 +32,12 @@ _TEMPLATE = """<!DOCTYPE html>
   ol.dms li { background: #f8f8f8; border-radius: 4px; padding: 8px 10px; margin-bottom: 6px;
               font-size: 14px; }
   a.li { color: #0a66c2; text-decoration: none; font-size: 13px; }
+  .links { font-size: 12px; margin: 0 0 8px; }
+  .links a { color: #444; text-decoration: none; margin-right: 10px; }
+  .dossier { background: #fafafa; border: 1px solid #eee; border-radius: 6px; padding: 8px 10px;
+             font-size: 12.5px; color: #333; white-space: pre-wrap; margin-top: 4px; }
+  details > summary { cursor: pointer; font-size: 11px; text-transform: uppercase;
+             letter-spacing: .5px; color: #888; font-weight: 700; margin: 12px 0 4px; }
   .src { font-size: 11px; color: #999; margin-top: 8px; word-break: break-all; }
   .foot { color: #999; font-size: 12px; text-align: center; padding: 8px 0 24px; }
 </style>
@@ -48,8 +54,15 @@ _TEMPLATE = """<!DOCTYPE html>
   <div class="card">
     <p class="who">{{ it.person.name }}<span class="tier tier-{{ it.draft.tier }}">TIER {{ it.draft.tier }}</span></p>
     <div class="meta">{{ it.person.title }} · {{ it.person.company }}
-      {% if it.person.linkedin %}· <a class="li" href="{{ it.person.linkedin }}">LinkedIn ↗</a>{% endif %}
+      {% if it.person.location %}· {{ it.person.location }}{% endif %}
     </div>
+    {% if it.person.linkedin or it.person.github or it.person.twitter %}
+    <div class="links">
+      {% if it.person.linkedin %}<a class="li" href="{{ it.person.linkedin }}">LinkedIn ↗</a>{% endif %}
+      {% if it.person.github %}<a href="{{ it.person.github }}">GitHub ↗</a>{% endif %}
+      {% if it.person.twitter %}<a href="{{ it.person.twitter }}">X ↗</a>{% endif %}
+    </div>
+    {% endif %}
 
     {% if it.draft.angle %}<div class="angle">{{ it.draft.angle }}</div>{% endif %}
     {% if it.draft.why %}<p class="why">{{ it.draft.why }}</p>{% endif %}
@@ -62,6 +75,13 @@ _TEMPLATE = """<!DOCTYPE html>
     {% if it.draft.dms %}
     <div class="label">DM options</div>
     <ol class="dms">{% for dm in it.draft.dms %}<li>{{ dm }}</li>{% endfor %}</ol>
+    {% endif %}
+
+    {% if it.research.content %}
+    <details>
+      <summary>Dossier</summary>
+      <div class="dossier">{{ it.research.content }}</div>
+    </details>
     {% endif %}
 
     {% if it.research.citations %}

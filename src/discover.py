@@ -42,6 +42,39 @@ def _normalize_linkedin(url: str | None) -> str | None:
     return f"https://www.{url}" if url.startswith("linkedin.com") else f"https://{url}"
 
 
+def _to_url(u: str | None) -> str | None:
+    """PDL profile fields (github_url, twitter_url) often omit the scheme."""
+    if not u:
+        return None
+    u = u.strip()
+    return u if u.startswith("http") else f"https://{u}"
+
+
+def _prior_companies(person: dict) -> list[str]:
+    """A few past roles ('Title at Company') from PDL experience, excluding the current one."""
+    out, current = [], (person.get("job_company_name") or "").lower()
+    for exp in person.get("experience") or []:
+        comp = (exp.get("company") or {}).get("name") if isinstance(exp.get("company"), dict) else None
+        title = (exp.get("title") or {}).get("name") if isinstance(exp.get("title"), dict) else None
+        if not comp or comp.lower() == current:
+            continue
+        out.append(f"{title} at {comp}" if title else comp)
+        if len(out) >= 3:
+            break
+    return out
+
+
+def _education(person: dict) -> list[str]:
+    out = []
+    for ed in person.get("education") or []:
+        school = (ed.get("school") or {}).get("name") if isinstance(ed.get("school"), dict) else None
+        if school:
+            out.append(school)
+        if len(out) >= 2:
+            break
+    return out
+
+
 def _first_email(person: dict) -> str | None:
     if person.get("work_email"):
         return person["work_email"]
@@ -63,6 +96,15 @@ def _normalize(person: dict) -> dict:
         "company": person.get("job_company_name") or "",
         "linkedin": _normalize_linkedin(person.get("linkedin_url")),
         "email": None,  # revealed post-match via enrich_email to conserve credits
+        # Open-web seeds for deep, person-level research (never LinkedIn-scraped — these are
+        # public handles PDL already resolved; research.py follows their own work from here).
+        "github": _to_url(person.get("github_url")),
+        "twitter": _to_url(person.get("twitter_url")),
+        "location": person.get("location_name"),
+        "prior": _prior_companies(person),
+        "education": _education(person),
+        "skills": (person.get("skills") or [])[:6],
+        "interests": (person.get("interests") or [])[:6],
         "_pdl_id": person.get("id"),
         "_first_name": person.get("first_name"),
         "_last_name": person.get("last_name"),
@@ -160,6 +202,16 @@ def _mock_people(target: dict) -> list[dict]:
             "job_company_name": company,
             "job_company_website": target["domain"],
             "linkedin_url": f"linkedin.com/in/maya-chen-{slug}",
+            "github_url": "github.com/mayachen",
+            "twitter_url": "x.com/mayachen",
+            "location_name": "berlin, germany",
+            "experience": [
+                {"company": {"name": "Palantir"}, "title": {"name": "Forward Deployed Engineer"}},
+                {"company": {"name": "Stripe"}, "title": {"name": "Backend Engineer"}},
+            ],
+            "education": [{"school": {"name": "TU Munich"}}],
+            "skills": ["python", "distributed systems", "llm evals", "on-prem deployment"],
+            "interests": ["agents", "developer tooling"],
             "work_email": None,
             "id": f"mock_{slug}_1",
         },
@@ -172,6 +224,15 @@ def _mock_people(target: dict) -> list[dict]:
             "job_company_name": company,
             "job_company_website": target["domain"],
             "linkedin_url": f"linkedin.com/in/devin-park-{slug}",
+            "github_url": "github.com/devpark",
+            "twitter_url": None,
+            "location_name": "barcelona, spain",
+            "experience": [
+                {"company": {"name": "Typeform"}, "title": {"name": "Solutions Engineer"}},
+            ],
+            "education": [{"school": {"name": "UPC Barcelona"}}],
+            "skills": ["typescript", "rag", "customer integrations"],
+            "interests": ["retrieval", "open source"],
             "work_email": None,
             "id": f"mock_{slug}_2",
         },

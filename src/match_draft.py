@@ -48,8 +48,12 @@ def _build_user_message(profile: str, person: dict, research_text: str) -> str:
         f"Name: {person['name']}\n"
         f"Title: {person['title']}\n"
         f"Company: {person['company']}\n"
+        f"Location: {person.get('location') or '(unknown)'}\n"
+        f"GitHub: {person.get('github') or '(none)'}\n"
+        f"X/Twitter: {person.get('twitter') or '(none)'}\n"
+        f"Previously: {', '.join(person.get('prior') or []) or '(unknown)'}\n"
         f"LinkedIn: {person.get('linkedin') or '(unknown)'}\n\n"
-        "=== FRESH RESEARCH ===\n"
+        "=== DOSSIER (prefer a specific artifact/view from here over the job title) ===\n"
         f"{research_text}\n"
     )
 

@@ -5,7 +5,7 @@ A human does every LinkedIn action. The engine only researches and drafts.
 
 Usage:
   python main.py --mocks            # default: full pipeline on sample data, $0
-  python main.py --no-mocks         # real keys: Apollo + Perplexity + Anthropic + Gmail
+  python main.py --no-mocks         # real keys: PDL + Perplexity + Claude + Gmail
   python main.py --no-mocks --limit 3
 """
 from __future__ import annotations
@@ -81,7 +81,7 @@ def run(use_mocks: bool, limit: int | None, open_html: bool = False) -> str:
                 print(f"  [drop] low_confidence: {person['name']}")
                 continue
 
-            # Reveal an email only for survivors we'll actually contact (conserve credits).
+            # Reveal an email only for survivors we'll actually contact (conserve PDL credits).
             if not use_mocks and cfg["run"].get("reveal_emails"):
                 person["email"] = discover_mod.enrich_email(person, use_mocks=use_mocks)
 

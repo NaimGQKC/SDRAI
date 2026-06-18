@@ -1,23 +1,29 @@
-"""discover.py — Apollo People Search (API) -> right-level people.
+"""discover.py — People Data Labs Person Search (API) -> right-level people.
 
-HARD CONSTRAINT #1: discovery is Apollo API + open-web research ONLY. Never LinkedIn.
+HARD CONSTRAINT #1: discovery is the PDL API + open-web research ONLY. Never LinkedIn.
 HARD CONSTRAINT #2: founders / C-suite / VPs never go to the cold queue -> warm_path.
 
-API reference (fetched 2026-06): POST https://api.apollo.io/api/v1/mixed_people/search
-  auth header: x-api-key
-  body filters: q_organization_domains_list[], person_titles[], person_seniorities[], page, per_page
-  response: {"people": [{id, name, first_name, last_name, title, linkedin_url,
-                         organization: {name}, email|None}, ...]}
-  NOTE: People Search does NOT return verified emails — that costs a separate enrichment
-  credit (see enrich_email). We keep email=None here and only reveal post-match.
+We use People Data Labs instead of Apollo (Apollo's API is not usable on the free
+tier). PDL exposes a clean REST person-search that fits this cron-driven pipeline.
+
+API reference (docs.peopledatalabs.com/docs/person-search-api):
+  POST https://api.peopledatalabs.com/v5/person/search
+    auth header: X-Api-Key
+    body: {"query": <Elasticsearch bool query>, "size": <1-100>, "dataset": "all"}
+    response: {"status":200, "data":[{full_name, first_name, last_name, job_title,
+               job_title_levels[], job_company_name, job_company_website, linkedin_url,
+               work_email|None, emails[]|None, id}, ...], "total": N}
+  NOTE: search costs one PDL credit per RECORD returned, so keep `size` small (the
+  free tier is ~100 records/month). Verified emails are revealed post-match via the
+  Enrich API (enrich_email) so we only spend on people we'll actually contact.
 """
 from __future__ import annotations
 
 import os
 import requests
 
-APOLLO_SEARCH_URL = "https://api.apollo.io/api/v1/mixed_people/search"
-APOLLO_MATCH_URL = "https://api.apollo.io/api/v1/people/match"
+PDL_SEARCH_URL = "https://api.peopledatalabs.com/v5/person/search"
+PDL_ENRICH_URL = "https://api.peopledatalabs.com/v5/person/enrich"
 
 
 def _is_excluded(title: str, exclude_titles: list[str]) -> bool:
@@ -26,19 +32,38 @@ def _is_excluded(title: str, exclude_titles: list[str]) -> bool:
     return any(bad.lower() in t for bad in exclude_titles)
 
 
+def _normalize_linkedin(url: str | None) -> str | None:
+    """PDL returns linkedin like 'linkedin.com/in/foo' — make it a real URL."""
+    if not url:
+        return None
+    url = url.strip()
+    if url.startswith("http"):
+        return url
+    return f"https://www.{url}" if url.startswith("linkedin.com") else f"https://{url}"
+
+
+def _first_email(person: dict) -> str | None:
+    if person.get("work_email"):
+        return person["work_email"]
+    for e in person.get("emails") or []:
+        addr = e.get("address") if isinstance(e, dict) else e
+        if addr:
+            return addr
+    return None
+
+
 def _normalize(person: dict) -> dict:
-    """Map an Apollo person record to our flat contract."""
-    name = person.get("name") or " ".join(
+    """Map a PDL person record to our flat contract."""
+    name = person.get("full_name") or " ".join(
         p for p in [person.get("first_name"), person.get("last_name")] if p
     ).strip()
-    org = person.get("organization") or {}
     return {
         "name": name or "(name withheld)",
-        "title": person.get("title") or "",
-        "company": org.get("name") or "",
-        "linkedin": person.get("linkedin_url"),
-        "email": person.get("email"),  # almost always None from search
-        "_apollo_id": person.get("id"),
+        "title": person.get("job_title") or "",
+        "company": person.get("job_company_name") or "",
+        "linkedin": _normalize_linkedin(person.get("linkedin_url")),
+        "email": None,  # revealed post-match via enrich_email to conserve credits
+        "_pdl_id": person.get("id"),
         "_first_name": person.get("first_name"),
         "_last_name": person.get("last_name"),
     }
@@ -52,12 +77,12 @@ def discover(target: dict, cfg: dict, use_mocks: bool = True) -> tuple[list[dict
       warm_path -> same shape, for founders/C-suite/VPs (intro-only list)
     """
     exclude = cfg["seniority_exclude_titles"]
-    api_key = os.getenv("APOLLO_API_KEY")
+    api_key = os.getenv("PDL_API_KEY")
 
     if use_mocks or not api_key:
         people = _mock_people(target)
     else:
-        people = _search_apollo(target, cfg, api_key)
+        people = _search_pdl(target, cfg, api_key)
 
     queue, warm_path = [], []
     for raw in people:
@@ -68,85 +93,99 @@ def discover(target: dict, cfg: dict, use_mocks: bool = True) -> tuple[list[dict
     return queue, warm_path
 
 
-def _search_apollo(target: dict, cfg: dict, api_key: str) -> list[dict]:
-    body = {
-        "q_organization_domains_list": [target["domain"]],
-        "person_titles": target["roles"],
-        "person_seniorities": cfg["seniority_include"],
-        "page": 1,
-        "per_page": max(10, cfg["run"]["people_per_day"]),
-    }
-    headers = {
-        "x-api-key": api_key,
-        "Content-Type": "application/json",
-        "Cache-Control": "no-cache",
-    }
-    resp = requests.post(APOLLO_SEARCH_URL, json=body, headers=headers, timeout=30)
+def _search_pdl(target: dict, cfg: dict, api_key: str) -> list[dict]:
+    """One PDL Person Search per company. `size` is kept small to spare credits."""
+    # Filter on the company website (most reliable) + seniority level, and require the
+    # title to look like one of the target roles. role matches are analyzed text, so this
+    # favours recall — the match/draft step + tier filter discard the noise downstream.
+    must = [{"term": {"job_company_website": target["domain"].lower()}}]
+    levels = cfg.get("seniority_include") or ["director", "manager", "senior"]
+    must.append({"terms": {"job_title_levels": [lvl.lower() for lvl in levels]}})
+
+    role_should = [{"match": {"job_title": role}} for role in target.get("roles", [])]
+    query: dict = {"bool": {"must": must}}
+    if role_should:
+        query["bool"]["should"] = role_should
+        query["bool"]["minimum_should_match"] = 1
+
+    size = cfg["run"].get("search_size") or cfg["run"]["people_per_day"]
+    body = {"query": query, "size": max(1, min(int(size), 100)), "dataset": "all"}
+    headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
+
+    resp = requests.post(PDL_SEARCH_URL, json=body, headers=headers, timeout=30)
     resp.raise_for_status()
-    return resp.json().get("people", [])
+    return resp.json().get("data", [])
 
 
 def enrich_email(person: dict, use_mocks: bool = True) -> str | None:
-    """Spend ONE Apollo enrichment credit to reveal a verified email.
+    """Spend ONE PDL enrichment credit to reveal a verified email.
 
-    Call this ONLY for people who survive matching and you'll actually contact
-    (free tier ~100 reveals/mo). Returns the email or None.
+    Call this ONLY for people who survive matching and you'll actually contact.
+    Returns the email or None.
     """
-    api_key = os.getenv("APOLLO_API_KEY")
+    api_key = os.getenv("PDL_API_KEY")
     if use_mocks or not api_key:
         return person.get("email")
 
-    body = {"reveal_personal_emails": True}
-    if person.get("_apollo_id"):
-        body["id"] = person["_apollo_id"]
+    params: dict = {"min_likelihood": 6}
+    if person.get("_pdl_id"):
+        params["pdl_id"] = person["_pdl_id"]
+    elif person.get("linkedin"):
+        params["profile"] = person["linkedin"]
     else:
-        body["first_name"] = person.get("_first_name")
-        body["last_name"] = person.get("_last_name")
-        body["organization_name"] = person.get("company")
+        params["first_name"] = person.get("_first_name")
+        params["last_name"] = person.get("_last_name")
+        params["company"] = person.get("company")
 
-    headers = {"x-api-key": api_key, "Content-Type": "application/json", "Cache-Control": "no-cache"}
+    headers = {"X-Api-Key": api_key}
     try:
-        resp = requests.post(APOLLO_MATCH_URL, json=body, headers=headers, timeout=30)
+        resp = requests.get(PDL_ENRICH_URL, params=params, headers=headers, timeout=30)
         resp.raise_for_status()
-        return (resp.json().get("person") or {}).get("email")
+        return _first_email(resp.json().get("data") or {})
     except requests.RequestException:
         return None
 
 
 def _mock_people(target: dict) -> list[dict]:
-    """Deterministic sample data so the full pipeline runs at $0."""
+    """Deterministic sample data (PDL record shape) so the full pipeline runs at $0."""
     company = target["company"]
     slug = company.lower().replace(" ", "")
     return [
         {
-            "name": f"Maya Chen",
+            "full_name": "Maya Chen",
             "first_name": "Maya",
             "last_name": "Chen",
-            "title": "Head of Forward Deployed Engineering",
-            "organization": {"name": company},
-            "linkedin_url": f"https://www.linkedin.com/in/maya-chen-{slug}",
-            "email": None,
+            "job_title": "Head of Forward Deployed Engineering",
+            "job_title_levels": ["director"],
+            "job_company_name": company,
+            "job_company_website": target["domain"],
+            "linkedin_url": f"linkedin.com/in/maya-chen-{slug}",
+            "work_email": None,
             "id": f"mock_{slug}_1",
         },
         {
-            "name": f"Devin Park",
+            "full_name": "Devin Park",
             "first_name": "Devin",
             "last_name": "Park",
-            "title": "Senior Solutions Engineer",
-            "organization": {"name": company},
-            "linkedin_url": f"https://www.linkedin.com/in/devin-park-{slug}",
-            "email": None,
+            "job_title": "Senior Solutions Engineer",
+            "job_title_levels": ["senior"],
+            "job_company_name": company,
+            "job_company_website": target["domain"],
+            "linkedin_url": f"linkedin.com/in/devin-park-{slug}",
+            "work_email": None,
             "id": f"mock_{slug}_2",
         },
         {
             # excluded -> should land in warm_path, not the queue
-            "name": f"Sam Rivera",
+            "full_name": "Sam Rivera",
             "first_name": "Sam",
             "last_name": "Rivera",
-            "title": "Co-Founder & CEO",
-            "organization": {"name": company},
-            "linkedin_url": f"https://www.linkedin.com/in/sam-rivera-{slug}",
-            "email": None,
+            "job_title": "Co-Founder & CEO",
+            "job_title_levels": ["cxo", "owner"],
+            "job_company_name": company,
+            "job_company_website": target["domain"],
+            "linkedin_url": f"linkedin.com/in/sam-rivera-{slug}",
+            "work_email": None,
             "id": f"mock_{slug}_3",
         },
     ]

@@ -11,7 +11,7 @@ discover → research → match+draft → digest → email → track
 
 ## Hard constraints
 1. **Never automates LinkedIn.** No browser automation, no scraping, no auto-connect/DM.
-   Discovery is Apollo's API + open-web research only. You send everything by hand.
+   Discovery is People Data Labs' API + open-web research only. You send everything by hand.
 2. **Seniority targeting.** Cold queue = hiring managers (Head/Director of FDE/SE), senior IC
    peers (Senior/Staff SE/FDE), eng managers/leads. Founders / C-suite / VPs are routed to
    `warm_path.csv` (intro only), never the cold queue.
@@ -22,7 +22,7 @@ discover → research → match+draft → digest → email → track
 ## Setup
 1. `pip install -r requirements.txt`
 2. `cp .env.example .env` and fill keys:
-   - **Apollo**: Settings → Integrations → API Keys (scope: People Search + Enrichment).
+   - **People Data Labs**: free API key at dashboard.peopledatalabs.com (no card; ~100 records/mo free).
    - **Perplexity**: a `pplx-…` Sonar API key (Pro grants ~$5/mo credit; the chat sub is separate).
    - **Anthropic**: pay-as-you-go API key for the cron's drafting.
    - **Gmail**: a Google **App Password** (needs 2FA), not your real password.
@@ -41,13 +41,13 @@ mocks off **one module at a time** (draft → research → discover → deliver)
 `.github/workflows/daily.yml` runs `main.py --no-mocks` on a weekday schedule, emails the
 digest, and **commits `tracker.csv` back** (GitHub Actions is ephemeral, so this is how dedup
 survives across days). Add these repo secrets:
-`ANTHROPIC_API_KEY, PERPLEXITY_API_KEY, APOLLO_API_KEY, GMAIL_ADDRESS, GMAIL_APP_PASSWORD, DIGEST_TO`.
+`CLAUDE_CODE_OAUTH_TOKEN, PERPLEXITY_API_KEY, PDL_API_KEY, GMAIL_ADDRESS, GMAIL_APP_PASSWORD, DIGEST_TO`.
 
 ## Layout
 ```
 config.yaml                 targets, seniority rules, run settings
 profile/alejandro_profile.md  the "me" layer (read whole, passed to the model)
-src/discover.py             Apollo People Search → right-level people (+ warm-path split)
+src/discover.py             People Data Labs Person Search → right-level people (+ warm-path split)
 src/research.py             Perplexity Sonar → recent intel per person
 src/match_draft.py          Anthropic → strongest overlap + comment + DMs (strict JSON)
 src/digest.py               render hit-list as HTML
@@ -57,5 +57,5 @@ main.py                     orchestration (--mocks, --no-mocks, --limit)
 ```
 
 ## Cost
-Apollo free tier, Perplexity ~covered by Pro credit, Anthropic ~$2–5/mo on Sonnet, Gmail +
+PDL free tier (~100 records/mo), Perplexity ~covered by Pro credit, Anthropic ~$2–5/mo on Sonnet, Gmail +
 GitHub Actions free. **Total ≈ $0–5/mo.**

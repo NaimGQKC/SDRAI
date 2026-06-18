@@ -55,56 +55,64 @@ def run(use_mocks: bool, limit: int | None, open_html: bool = False) -> str:
     target_count = limit or cfg["run"]["people_per_day"]
     date = dt.date.today().isoformat()
 
+    email_cap = cfg["run"].get("emails_per_day", 3)
     items: list[dict] = []
-    all_warm: list[dict] = []
 
-    def consider(person: dict) -> bool:
-        """Research + draft one person; append to items if usable. Returns True if added."""
+    def n(channel: str) -> int:
+        return sum(1 for it in items if it["channel"] == channel)
+
+    def consider(person: dict, channel: str = "linkedin") -> bool:
+        """Research + draft one person on `channel`; append if usable. Returns True if added."""
         if tracker.already_seen(person.get("linkedin"), person["name"], person["company"]):
             print(f"  [skip] already seen: {person['name']}")
             return False
 
         intel = research_mod.research(person, cfg, use_mocks=use_mocks)
-        draft = match_mod.match_draft(profile, person, intel["content"], cfg, use_mocks=use_mocks)
+        draft = match_mod.match_draft(profile, person, intel["content"], cfg,
+                                      use_mocks=use_mocks, channel=channel)
 
-        # HARD CONSTRAINT #3: no fabrication. Drop low-confidence people from the queue.
-        if draft["tier"] not in ("A", "B", "C") or not draft["dms"]:
+        # HARD CONSTRAINT #3: no fabrication. Drop low-confidence people.
+        usable = draft.get("body") if channel == "email" else draft.get("dms")
+        if draft["tier"] not in ("A", "B", "C") or not usable:
             print(f"  [drop] low_confidence: {person['name']}")
             return False
 
-        # Reveal an email only for survivors we'll actually contact (conserve credits).
-        if not use_mocks and cfg["run"].get("reveal_emails"):
+        if channel == "email":
+            # The whole point of the email channel — find a real public address to send to.
+            person["email"] = research_mod.find_email(person, cfg, use_mocks=use_mocks)
+        elif not use_mocks and cfg["run"].get("reveal_emails"):
             person["email"] = discover_mod.enrich_email(person, use_mocks=use_mocks)
 
-        items.append({"person": person, "research": intel, "draft": draft})
-        print(f"  [queue] {person['name']} — tier {draft['tier']}")
+        items.append({"person": person, "research": intel, "draft": draft, "channel": channel})
+        tag = "email" if channel == "email" else f"tier {draft['tier']}"
+        print(f"  [{channel}] {person['name']} — {tag}")
         return True
+
+    def process(queue: list[dict], warm: list[dict]) -> None:
+        for person in queue:
+            if n("linkedin") >= target_count:
+                break
+            consider(person, "linkedin")
+        for person in warm:  # senior people -> cold email instead of the old warm-path list
+            if n("email") >= email_cap:
+                break
+            consider(person, "email")
 
     source = cfg["run"].get("discovery_source", "seed")
     if source == "seed":
         # Discovery is a flat, pre-built list (you / Clay / an agent). No API, no credits.
-        queue, warm_path = discover_mod.discover_from_seed(cfg)
-        all_warm.extend(warm_path)
-        for person in queue:
-            if len(items) >= target_count:
-                break
-            consider(person)
+        process(*discover_mod.discover_from_seed(cfg))
     else:
-        # Company-by-company (perplexity | pdl), stopping early once we hit the daily target.
+        # Company-by-company (perplexity | pdl), stopping once both channels are full.
         for target in cfg["targets"]:
-            if len(items) >= target_count:
+            if n("linkedin") >= target_count and n("email") >= email_cap:
                 break
             if source == "perplexity":
                 queue, warm_path = discover_mod.discover_via_perplexity(target, cfg, use_mocks=use_mocks)
             else:
                 queue, warm_path = discover_mod.discover(target, cfg, use_mocks=use_mocks)
-            all_warm.extend(warm_path)
-            print(f"[discover] {target['company']}: {len(queue)} queue-eligible, "
-                  f"{len(warm_path)} warm-path")
-            for person in queue:
-                if len(items) >= target_count:
-                    break
-                consider(person)
+            print(f"[discover] {target['company']}: {len(queue)} LinkedIn, {len(warm_path)} email-eligible")
+            process(queue, warm_path)
 
     html = build_digest(items, date)
     out_path = os.path.join(ROOT, f"digest_{date}.html")
@@ -113,7 +121,6 @@ def run(use_mocks: bool, limit: int | None, open_html: bool = False) -> str:
     print(f"[digest] wrote {out_path} ({len(items)} people)")
 
     if not use_mocks:
-        tracker.log_warm_path(all_warm, date)
         tracker.log_items(items, date)
         try:
             send_digest(html, date)

@@ -13,7 +13,10 @@ Response carries `choices[0].message.content` plus `citations` / `search_results
 """
 from __future__ import annotations
 
+import json
 import os
+import re
+
 import requests
 
 PPLX_URL = "https://api.perplexity.ai/chat/completions"
@@ -86,6 +89,63 @@ def research(person: dict, cfg: dict, use_mocks: bool = True) -> dict:
         return {"content": content, "citations": citations}
     except (requests.RequestException, KeyError, IndexError) as e:
         return {"content": f"[research unavailable: {e}]", "citations": []}
+
+
+_EMAIL_PROMPT = (
+    "Find the professional email address of {name}, {title} at {company} ({domain}). "
+    "Check public sources only: the company site/team page, their GitHub commits or profile, "
+    "conference/talk pages, personal site, or press. "
+    'Return STRICT JSON: {{"email": "<address>" or null, "source": "<url>" or null}}. '
+    "Only return an email you actually found on a real public source — do NOT guess or build "
+    "one from a first.last@domain pattern. If you find none, email must be null."
+)
+
+
+def find_email(person: dict, cfg: dict, use_mocks: bool = True) -> str | None:
+    """Hunt a public email for a senior person via Sonar. Returns the address or None.
+
+    Engineers/founders leak emails publicly (GitHub commits, talks, company pages); this asks
+    Sonar to surface one from a real source and refuses pattern-guessing. Call only for people
+    you're about to email, to keep it cheap.
+    """
+    api_key = (os.getenv("PERPLEXITY_API_KEY") or "").strip() or None
+    if use_mocks or not api_key:
+        dom = person.get("domain") or (person["company"].lower().replace(" ", "") + ".com")
+        first = (person.get("_first_name") or person["name"].split()[0]).lower()
+        return f"{first}@{dom}"  # mock only — never a real guess in live mode
+
+    prompt = _EMAIL_PROMPT.format(
+        name=person["name"], title=person.get("title") or "", company=person["company"],
+        domain=person.get("domain") or "",
+    )
+    body = {
+        "model": cfg["run"]["research_model"],
+        "messages": [
+            {"role": "system", "content": "You find verifiable public contact info. Never guess an address."},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    try:
+        resp = requests.post(PPLX_URL, json=body, headers=headers, timeout=60)
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+    except (requests.RequestException, KeyError, IndexError):
+        return None
+
+    cleaned = re.sub(r"^```(?:json)?|```$", "", content.strip(), flags=re.MULTILINE).strip()
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if not m:
+            return None
+        try:
+            data = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            return None
+    email = (data.get("email") or "").strip() if isinstance(data, dict) else ""
+    return email or None
 
 
 def _mock_research(person: dict) -> dict:

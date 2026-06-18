@@ -1,22 +1,26 @@
 # Hit-List Engine
 
-A personal outbound engine. Each morning it hands you a ready-to-execute LinkedIn
-**hit-list**: ~8 right-level people at your target companies, each with recent intel, a
-warm-up comment, and 2–3 DM options written in your voice. You read, tweak, and **send by
-hand**. The machine does the research and drafting; you do the human part.
+A personal outbound engine. Each morning it hands you a ready-to-execute **hit-list** at your
+target companies, each person with a deep dossier and a draft in your voice:
+- **LinkedIn** for right-level peers / hiring managers — a warm-up comment + 2–3 DM options.
+- **Email** for senior people (founders / C-suite) — a cold email (subject + body) with a
+  public address it found, because a cold DM to them is weak but a sharp email can land.
+
+You read, tweak, and **send by hand**. The machine does the research and drafting; you do the
+human part.
 
 ```
 discover → research → match+draft → digest → email → track
 ```
 
 ## Hard constraints
-1. **Never automates LinkedIn.** No browser automation, no scraping, no auto-connect/DM.
-   Discovery is a seed list (or People Data Labs' API) + open-web research only. You send
-   everything by hand.
-2. **Seniority targeting.** Cold queue = hiring managers (Head/Director of FDE/SE), senior IC
-   peers (Senior/Staff SE/FDE), eng managers/leads. Founders / C-suite / VPs are routed to
-   `warm_path.csv` (intro only), never the cold queue.
-3. **No fabrication.** Thin research → person is dropped, never guessed.
+1. **Never auto-sends anything.** No browser automation, no auto-connect/DM, no auto-emailing.
+   Every LinkedIn message and email is a draft you send by hand.
+2. **Channel by seniority.** Right-level peers / hiring managers (Head/Director of FDE/SE,
+   Senior/Staff SE/FDE, eng managers) → **LinkedIn** comment + DMs. Founders / C-suite / execs
+   → **cold email** (a DM to them is weak; a specific email isn't).
+3. **No fabrication.** Thin research → person is dropped, never guessed. Email addresses come
+   from real public sources only — never pattern-guessed.
 4. **Dedup.** Never queues anyone already in `tracker.csv`.
 5. **Drafts for human review only.** Nothing is sent automatically.
 
@@ -70,8 +74,8 @@ profile/alejandro_profile.md  the "me" layer (read whole, passed to the model)
 people_seed.csv             seed-mode input: your list of people (name,company,…)
 src/discover.py             Perplexity finder / seed CSV / PDL search → people (+ warm-path split)
 src/research.py             Perplexity Sonar → recent intel per person
-src/match_draft.py          Anthropic → strongest overlap + comment + DMs (strict JSON)
-src/digest.py               render hit-list as HTML
+src/match_draft.py          strongest overlap → LinkedIn comment+DMs OR cold email (strict JSON)
+src/digest.py               render hit-list as HTML (LinkedIn + email sections)
 src/deliver.py              Gmail SMTP
 src/tracker.py              CSV log, dedup, follow-up flags
 main.py                     orchestration (--mocks, --no-mocks, --limit)

@@ -1,7 +1,8 @@
 """tracker.py — CSV log, dedup, follow-up flags.
 
-tracker.csv columns: date,name,company,linkedin,tier,status
-  status: queued | commented | dm_sent | replied | dead
+tracker.csv columns: date,name,company,channel,linkedin,email,tier,status
+  channel: linkedin | email
+  status:  queued | commented | dm_sent | emailed | replied | dead
 
 GH Actions is ephemeral — the workflow commits tracker.csv back to the repo after each
 run so dedup survives across days.
@@ -12,10 +13,8 @@ import csv
 import os
 
 TRACKER_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tracker.csv")
-WARM_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "warm_path.csv")
 
-_TRACKER_FIELDS = ["date", "name", "company", "linkedin", "tier", "status"]
-_WARM_FIELDS = ["date", "name", "company", "linkedin", "title"]
+_TRACKER_FIELDS = ["date", "name", "company", "channel", "linkedin", "email", "tier", "status"]
 
 
 def _ensure(path: str, fields: list[str]) -> None:
@@ -59,28 +58,9 @@ def log_items(items: list[dict], date: str) -> None:
                 "date": date,
                 "name": p["name"],
                 "company": p["company"],
+                "channel": it.get("channel", "linkedin"),
                 "linkedin": p.get("linkedin") or "",
+                "email": p.get("email") or "",
                 "tier": d.get("tier", ""),
                 "status": "queued",
-            })
-
-
-def log_warm_path(people: list[dict], date: str) -> None:
-    """Append founders/C-suite/VPs to the intro-only warm-path list."""
-    if not people:
-        return
-    _ensure(WARM_PATH, _WARM_FIELDS)
-    seen = _seen_keys(WARM_PATH, "linkedin")
-    with open(WARM_PATH, "a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=_WARM_FIELDS)
-        for p in people:
-            li = (p.get("linkedin") or "").strip()
-            if li and li.lower() in seen:
-                continue
-            w.writerow({
-                "date": date,
-                "name": p["name"],
-                "company": p["company"],
-                "linkedin": li,
-                "title": p["title"],
             })

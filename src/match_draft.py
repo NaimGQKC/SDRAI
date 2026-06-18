@@ -148,7 +148,7 @@ def _draft_via_cli(user_msg: str, cfg: dict, person: dict) -> dict:
 # --- api backend: Anthropic SDK (optional fallback) -------------------------------------
 
 def _draft_via_api(user_msg: str, cfg: dict, person: dict) -> dict:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip() or None
     if not api_key:
         print("  [warn] draft_backend=api but ANTHROPIC_API_KEY is unset — using mock draft.")
         return _mock_draft(person)

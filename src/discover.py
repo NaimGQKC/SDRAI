@@ -119,7 +119,7 @@ def discover(target: dict, cfg: dict, use_mocks: bool = True) -> tuple[list[dict
       warm_path -> same shape, for founders/C-suite/VPs (intro-only list)
     """
     exclude = cfg["seniority_exclude_titles"]
-    api_key = os.getenv("PDL_API_KEY")
+    api_key = (os.getenv("PDL_API_KEY") or "").strip() or None
 
     if use_mocks or not api_key:
         people = _mock_people(target)
@@ -165,7 +165,7 @@ def enrich_email(person: dict, use_mocks: bool = True) -> str | None:
     Call this ONLY for people who survive matching and you'll actually contact.
     Returns the email or None.
     """
-    api_key = os.getenv("PDL_API_KEY")
+    api_key = (os.getenv("PDL_API_KEY") or "").strip() or None
     if use_mocks or not api_key:
         return person.get("email")
 

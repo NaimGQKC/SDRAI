@@ -58,7 +58,7 @@ def _seeds(person: dict) -> str:
 
 def research(person: dict, cfg: dict, use_mocks: bool = True) -> dict:
     """Return {'content': str, 'citations': [str, ...]} — a person-level dossier."""
-    api_key = os.getenv("PERPLEXITY_API_KEY")
+    api_key = (os.getenv("PERPLEXITY_API_KEY") or "").strip() or None
     if use_mocks or not api_key:
         return _mock_research(person)
 

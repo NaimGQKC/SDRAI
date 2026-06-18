@@ -1,11 +1,13 @@
 run:
   # Where the "find people" step gets its names:
-  #   seed -> read people_seed.csv (you / Clay export / an agent fill it). $0, no API,
-  #           no vendor wall. The engine still does the deep research + draft.
-  #   pdl  -> People Data Labs Person Search API (needs PDL_API_KEY; free tier is tiny).
-  discovery_source: seed
+  #   perplexity -> Sonar web-search FINDS the people for you (the step you want automated).
+  #                 Uses PERPLEXITY_API_KEY. Surfaces publicly-visible people; coverage varies
+  #                 but those are exactly the ones you can personalise to.
+  #   seed       -> read people_seed.csv (you / Clay export fill it). $0, fully manual.
+  #   pdl        -> People Data Labs Person Search API (needs PDL_API_KEY; free tier is tiny).
+  discovery_source: perplexity
   people_per_day: 5
-  search_size: 6          # [pdl only] max records pulled per company per run (credit guard)
+  search_size: 6          # people to ask for per company (perplexity), or records pulled (pdl)
   # How drafts get written:
   #   claude_cli -> shells out to `claude -p` (Claude Code). $0, no Anthropic API key.
   #                 Uses your Pro login locally; CLAUDE_CODE_OAUTH_TOKEN in CI.

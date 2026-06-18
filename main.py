@@ -90,11 +90,14 @@ def run(use_mocks: bool, limit: int | None, open_html: bool = False) -> str:
                 break
             consider(person)
     else:
-        # PDL: discover company-by-company, stopping early to spare API credits.
+        # Company-by-company (perplexity | pdl), stopping early once we hit the daily target.
         for target in cfg["targets"]:
             if len(items) >= target_count:
                 break
-            queue, warm_path = discover_mod.discover(target, cfg, use_mocks=use_mocks)
+            if source == "perplexity":
+                queue, warm_path = discover_mod.discover_via_perplexity(target, cfg, use_mocks=use_mocks)
+            else:
+                queue, warm_path = discover_mod.discover(target, cfg, use_mocks=use_mocks)
             all_warm.extend(warm_path)
             print(f"[discover] {target['company']}: {len(queue)} queue-eligible, "
                   f"{len(warm_path)} warm-path")

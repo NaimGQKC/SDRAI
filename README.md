@@ -20,15 +20,19 @@ discover → research → match+draft → digest → email → track
 4. **Dedup.** Never queues anyone already in `tracker.csv`.
 5. **Drafts for human review only.** Nothing is sent automatically.
 
-## Discovery: seed list vs PDL
-`run.discovery_source` in `config.yaml` picks where the names come from:
-- **`seed`** (default): the engine reads **`people_seed.csv`** — a list you fill however you
-  like (by hand, a Clay export, an agent). Only `name` + `company` are required; anything
-  else (github/twitter/linkedin/domain/title) just deepens the dossier. **$0, no API, no
-  vendor credit wall.** See `people_seed.example.csv` for the format. This is the robust
-  default because no people-data vendor gives real person-search away for free.
-- **`pdl`**: People Data Labs Person Search API (needs `PDL_API_KEY`). Automated, but the
-  free tier is tiny and quickly rate-/quota-limited; realistic only on a paid plan.
+## Discovery: who finds the people
+`run.discovery_source` in `config.yaml` picks how the "find people" step works — the
+high-effort step this whole thing exists to automate:
+- **`perplexity`** (default): Sonar web-search **finds the people for you** at each target
+  company ("senior solutions/forward-deployed engineers at <company>, with sources"). It
+  surfaces publicly-visible people — team pages, talks, GitHub, press — which are exactly the
+  ones you can write a sharp, personal message to. Not a structured database, so coverage
+  varies and it's told never to guess; every name is re-verified by the deep research step and
+  your own review. Uses `PERPLEXITY_API_KEY` (cheap; ~covered by Pro credit).
+- **`seed`**: the engine reads **`people_seed.csv`** — a list you fill by hand / Clay export.
+  Fully manual, $0, no API. Good for hand-picked targets. See `people_seed.example.csv`.
+- **`pdl`**: People Data Labs Person Search API. Structured, but the free tier is tiny and
+  quota-limited; realistic only on a paid plan.
 
 Either way, the valuable part — the deep open-web dossier + the draft — is identical.
 
@@ -64,7 +68,7 @@ survives across days). Add these repo secrets:
 config.yaml                 targets, seniority rules, run settings
 profile/alejandro_profile.md  the "me" layer (read whole, passed to the model)
 people_seed.csv             seed-mode input: your list of people (name,company,…)
-src/discover.py             seed CSV reader / PDL Person Search → people (+ warm-path split)
+src/discover.py             Perplexity finder / seed CSV / PDL search → people (+ warm-path split)
 src/research.py             Perplexity Sonar → recent intel per person
 src/match_draft.py          Anthropic → strongest overlap + comment + DMs (strict JSON)
 src/digest.py               render hit-list as HTML

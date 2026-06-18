@@ -20,13 +20,16 @@ API reference (docs.peopledatalabs.com/docs/person-search-api):
 from __future__ import annotations
 
 import csv
+import json
 import os
+import re
 import time
 
 import requests
 
 PDL_SEARCH_URL = "https://api.peopledatalabs.com/v5/person/search"
 PDL_ENRICH_URL = "https://api.peopledatalabs.com/v5/person/enrich"
+PPLX_URL = "https://api.perplexity.ai/chat/completions"
 
 # Seed file: a hand-/Clay-/agent-built list of people. The engine reads this instead of
 # hitting PDL when run.discovery_source == "seed". Decouples discovery (flexible, free)
@@ -186,6 +189,125 @@ def discover_from_seed(cfg: dict, seed_path: str | None = None) -> tuple[list[di
             (warm_path if _is_excluded(p["title"], exclude) else queue).append(p)
     print(f"[seed] loaded {len(queue) + len(warm_path)} people from {os.path.basename(path)}")
     return queue, warm_path
+
+
+_DISCOVER_PROMPT = (
+    "Find up to {n} real people who CURRENTLY work at {company} ({domain}) whose role is one "
+    "of: {roles}. Prefer hiring managers (Head/Director of those functions) and senior "
+    "individual contributors; skip junior/intern.\n\n"
+    "For EACH person return: name, their current title, any public profile URLs you can "
+    "actually confirm (linkedin, github, twitter), and one `source` URL that proves they work "
+    "there (company page, their own post/talk, GitHub, press).\n\n"
+    "HARD RULES: only include people you can verify from a real, current public source. Do NOT "
+    "invent names, titles, or URLs. Do NOT pad to reach {n}. If you cannot confirm anyone, "
+    "return an empty list.\n\n"
+    'Return STRICT JSON only, no prose: {{"people":[{{"name":"","title":"","linkedin":"",'
+    '"github":"","twitter":"","source":""}}]}}'
+)
+
+
+def discover_via_perplexity(target: dict, cfg: dict, use_mocks: bool = True) -> tuple[list[dict], list[dict]]:
+    """Use Perplexity Sonar (web search) to FIND right-level people at one company.
+
+    Returns (queue, warm_path), same contract as discover(). Sonar surfaces publicly-visible
+    people (team pages, talks, GitHub, press) — exactly the ones you can personalise to. It is
+    not a structured database, so coverage varies; the prompt forbids guessing and every name
+    is re-verified by the deep research step + your own review before you send anything.
+    """
+    exclude = cfg["seniority_exclude_titles"]
+    api_key = (os.getenv("PERPLEXITY_API_KEY") or "").strip() or None
+
+    if use_mocks or not api_key:
+        people = _mock_perplexity_people(target)
+    else:
+        people = _search_perplexity(target, cfg, api_key)
+
+    queue, warm_path, seen = [], [], set()
+    for raw in people:
+        p = _person_from_pplx(raw, target)
+        if not p or p["name"].lower() in seen:
+            continue
+        seen.add(p["name"].lower())
+        (warm_path if _is_excluded(p["title"], exclude) else queue).append(p)
+    return queue, warm_path
+
+
+def _search_perplexity(target: dict, cfg: dict, api_key: str) -> list[dict]:
+    n = max(3, int(cfg["run"].get("search_size") or cfg["run"]["people_per_day"]))
+    roles = ", ".join(target.get("roles", [])) or "engineering / solutions / product"
+    prompt = _DISCOVER_PROMPT.format(company=target["company"], domain=target["domain"], roles=roles, n=n)
+    body = {
+        "model": cfg["run"]["research_model"],
+        "messages": [
+            {"role": "system", "content": "You are a precise sourcing researcher. Return only "
+             "verifiable people, each with a real source URL. Never invent names."},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    try:
+        resp = requests.post(PPLX_URL, json=body, headers=headers, timeout=60)
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+    except (requests.RequestException, KeyError, IndexError) as e:
+        print(f"  [warn] Perplexity discovery failed for {target['company']}: {e}")
+        return []
+    return _parse_pplx_people(content)
+
+
+def _parse_pplx_people(content: str) -> list[dict]:
+    """Pull the people array out of Sonar's response, tolerating fences / stray prose."""
+    cleaned = re.sub(r"^```(?:json)?|```$", "", content.strip(), flags=re.MULTILINE).strip()
+    data = None
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}|\[.*\]", cleaned, re.DOTALL)
+        if m:
+            try:
+                data = json.loads(m.group(0))
+            except json.JSONDecodeError:
+                return []
+    if isinstance(data, dict):
+        return data.get("people") or []
+    return data if isinstance(data, list) else []
+
+
+def _person_from_pplx(raw: dict, target: dict) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    name = (raw.get("name") or "").strip()
+    if not name:
+        return None
+    parts = name.split()
+    return {
+        "name": name,
+        "title": (raw.get("title") or "").strip(),
+        "company": target["company"],
+        "domain": target.get("domain"),
+        "linkedin": _normalize_linkedin((raw.get("linkedin") or "").strip() or None),
+        "github": _to_url((raw.get("github") or "").strip() or None),
+        "twitter": _to_url((raw.get("twitter") or "").strip() or None),
+        "email": None,
+        "location": None,
+        "prior": [],
+        "education": [],
+        "skills": [],
+        "interests": [],
+        "_pdl_id": None,
+        "_first_name": parts[0] if parts else None,
+        "_last_name": parts[-1] if len(parts) > 1 else None,
+    }
+
+
+def _mock_perplexity_people(target: dict) -> list[dict]:
+    return [
+        {"name": "Maya Chen", "title": "Head of Forward Deployed Engineering",
+         "github": "github.com/mayachen", "twitter": "x.com/mayachen", "source": "https://example.com/team"},
+        {"name": "Devin Park", "title": "Senior Solutions Engineer",
+         "linkedin": "linkedin.com/in/devin-park", "source": "https://example.com/blog"},
+        {"name": "Sam Rivera", "title": "Co-Founder & CEO", "source": "https://example.com/about"},
+    ]
 
 
 def _person_from_seed(row: dict) -> dict | None:

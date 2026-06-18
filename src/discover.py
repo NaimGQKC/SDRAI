@@ -154,8 +154,16 @@ def _search_pdl(target: dict, cfg: dict, api_key: str) -> list[dict]:
     body = {"query": query, "size": max(1, min(int(size), 100)), "dataset": "all"}
     headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
 
-    resp = requests.post(PDL_SEARCH_URL, json=body, headers=headers, timeout=30)
-    resp.raise_for_status()
+    # One bad query (or a rate/credit limit) shouldn't kill the whole run — log PDL's own
+    # error message (a 4xx costs no credits) and let the other companies proceed.
+    try:
+        resp = requests.post(PDL_SEARCH_URL, json=body, headers=headers, timeout=30)
+    except requests.RequestException as e:
+        print(f"  [warn] PDL search failed for {target['company']}: {e}")
+        return []
+    if resp.status_code >= 400:
+        print(f"  [warn] PDL search {resp.status_code} for {target['company']}: {resp.text[:500]}")
+        return []
     return resp.json().get("data", [])
 
 

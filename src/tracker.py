@@ -64,3 +64,23 @@ def log_items(items: list[dict], date: str) -> None:
                 "tier": d.get("tier", ""),
                 "status": "queued",
             })
+
+
+def log_roster(people: list[dict], date: str) -> None:
+    """Log senior people (the email-yourself roster) so they're not re-listed tomorrow."""
+    if not people:
+        return
+    _ensure(TRACKER_PATH, _TRACKER_FIELDS)
+    with open(TRACKER_PATH, "a", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=_TRACKER_FIELDS)
+        for p in people:
+            w.writerow({
+                "date": date,
+                "name": p["name"],
+                "company": p["company"],
+                "channel": "email",
+                "linkedin": p.get("linkedin") or "",
+                "email": p.get("email") or "",
+                "tier": "",
+                "status": "to_email",
+            })

@@ -193,8 +193,9 @@ def discover_from_seed(cfg: dict, seed_path: str | None = None) -> tuple[list[di
 
 _DISCOVER_PROMPT = (
     "Find up to {n} real people who CURRENTLY work at {company} ({domain}) whose role is one "
-    "of: {roles}. Prefer hiring managers (Head/Director of those functions) and senior "
-    "individual contributors; skip junior/intern.\n\n"
+    "of: {roles}. Target individual contributors and team leads / managers — the peer crowd. "
+    "Do NOT return directors, heads of department, VPs, founders or C-suite (those are handled "
+    "separately).\n\n"
     "For EACH person return: name, their current title, any public profile URLs you can "
     "actually confirm (linkedin, github, twitter), and one `source` URL that proves they work "
     "there (company page, their own post/talk, GitHub, press).\n\n"
@@ -302,11 +303,13 @@ def _person_from_pplx(raw: dict, target: dict) -> dict | None:
 
 def _mock_perplexity_people(target: dict) -> list[dict]:
     return [
-        {"name": "Maya Chen", "title": "Head of Forward Deployed Engineering",
-         "github": "github.com/mayachen", "twitter": "x.com/mayachen", "source": "https://example.com/team"},
-        {"name": "Devin Park", "title": "Senior Solutions Engineer",
+        {"name": "Maya Chen", "title": "Senior Forward Deployed Engineer",
+         "github": "github.com/mayachen", "twitter": "x.com/mayachen", "source": "https://example.com/talk"},
+        {"name": "Devin Park", "title": "Solutions Engineer",
          "linkedin": "linkedin.com/in/devin-park", "source": "https://example.com/blog"},
-        {"name": "Sam Rivera", "title": "Co-Founder & CEO", "source": "https://example.com/about"},
+        # excluded (founder) -> email roster, not LinkedIn-drafted
+        {"name": "Sam Rivera", "title": "Co-Founder & CEO",
+         "linkedin": "linkedin.com/in/sam-rivera", "source": "https://example.com/about"},
     ]
 
 

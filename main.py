@@ -55,73 +55,73 @@ def run(use_mocks: bool, limit: int | None, open_html: bool = False) -> str:
     target_count = limit or cfg["run"]["people_per_day"]
     date = dt.date.today().isoformat()
 
-    email_cap = cfg["run"].get("emails_per_day", 3)
-    items: list[dict] = []
+    items: list[dict] = []     # LinkedIn drafts (researched + drafted)
+    roster: list[dict] = []    # senior people to email yourself — no drafts, just leads
+    roster_seen: set[str] = set()
 
-    def n(channel: str) -> int:
-        return sum(1 for it in items if it["channel"] == channel)
-
-    def consider(person: dict, channel: str = "linkedin") -> bool:
-        """Research + draft one person on `channel`; append if usable. Returns True if added."""
+    def consider(person: dict) -> bool:
+        """Research + draft one LinkedIn person; append if usable. Returns True if added."""
         if tracker.already_seen(person.get("linkedin"), person["name"], person["company"]):
             print(f"  [skip] already seen: {person['name']}")
             return False
 
         intel = research_mod.research(person, cfg, use_mocks=use_mocks)
-        draft = match_mod.match_draft(profile, person, intel["content"], cfg,
-                                      use_mocks=use_mocks, channel=channel)
+        draft = match_mod.match_draft(profile, person, intel["content"], cfg, use_mocks=use_mocks)
 
         # HARD CONSTRAINT #3: no fabrication. Drop low-confidence people.
-        usable = draft.get("body") if channel == "email" else draft.get("dms")
-        if draft["tier"] not in ("A", "B", "C") or not usable:
+        if draft["tier"] not in ("A", "B", "C") or not draft["dms"]:
             print(f"  [drop] low_confidence: {person['name']}")
             return False
 
-        if channel == "email":
-            # The whole point of the email channel — find a real public address to send to.
-            person["email"] = research_mod.find_email(person, cfg, use_mocks=use_mocks)
-        elif not use_mocks and cfg["run"].get("reveal_emails"):
+        if not use_mocks and cfg["run"].get("reveal_emails"):
             person["email"] = discover_mod.enrich_email(person, use_mocks=use_mocks)
 
-        items.append({"person": person, "research": intel, "draft": draft, "channel": channel})
-        tag = "email" if channel == "email" else f"tier {draft['tier']}"
-        print(f"  [{channel}] {person['name']} — {tag}")
+        items.append({"person": person, "research": intel, "draft": draft, "channel": "linkedin"})
+        print(f"  [linkedin] {person['name']} — tier {draft['tier']}")
         return True
+
+    def add_to_roster(person: dict) -> None:
+        """Senior person (founder/C-suite/director/head) -> email-yourself list. No drafting."""
+        key = (person.get("linkedin") or f"{person['name']}|{person['company']}").strip().lower()
+        if key in roster_seen or tracker.already_seen(person.get("linkedin"), person["name"], person["company"]):
+            return
+        roster_seen.add(key)
+        roster.append(person)
+        print(f"  [email] {person['name']} — {person['title']} (you write this one)")
 
     def process(queue: list[dict], warm: list[dict]) -> None:
         for person in queue:
-            if n("linkedin") >= target_count:
+            if len(items) >= target_count:
                 break
-            consider(person, "linkedin")
-        for person in warm:  # senior people -> cold email instead of the old warm-path list
-            if n("email") >= email_cap:
-                break
-            consider(person, "email")
+            consider(person)
+        for person in warm:
+            add_to_roster(person)
 
     source = cfg["run"].get("discovery_source", "seed")
     if source == "seed":
         # Discovery is a flat, pre-built list (you / Clay / an agent). No API, no credits.
         process(*discover_mod.discover_from_seed(cfg))
     else:
-        # Company-by-company (perplexity | pdl), stopping once both channels are full.
+        # Company-by-company (perplexity | pdl), stopping once the LinkedIn target is met.
         for target in cfg["targets"]:
-            if n("linkedin") >= target_count and n("email") >= email_cap:
+            if len(items) >= target_count:
                 break
             if source == "perplexity":
                 queue, warm_path = discover_mod.discover_via_perplexity(target, cfg, use_mocks=use_mocks)
             else:
                 queue, warm_path = discover_mod.discover(target, cfg, use_mocks=use_mocks)
-            print(f"[discover] {target['company']}: {len(queue)} LinkedIn, {len(warm_path)} email-eligible")
+            print(f"[discover] {target['company']}: {len(queue)} LinkedIn, {len(warm_path)} email-roster")
             process(queue, warm_path)
 
-    html = build_digest(items, date)
+    html = build_digest(items, roster, date)
     out_path = os.path.join(ROOT, f"digest_{date}.html")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
-    print(f"[digest] wrote {out_path} ({len(items)} people)")
+    print(f"[digest] wrote {out_path} ({len(items)} LinkedIn, {len(roster)} email)")
 
     if not use_mocks:
         tracker.log_items(items, date)
+        tracker.log_roster(roster, date)
         try:
             send_digest(html, date)
             print(f"[deliver] emailed digest to {os.getenv('DIGEST_TO') or os.getenv('GMAIL_ADDRESS')}")

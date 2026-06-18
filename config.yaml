@@ -6,8 +6,7 @@ run:
   #   seed       -> read people_seed.csv (you / Clay export fill it). $0, fully manual.
   #   pdl        -> People Data Labs Person Search API (needs PDL_API_KEY; free tier is tiny).
   discovery_source: perplexity
-  people_per_day: 5       # LinkedIn drafts/day (right-level peers + hiring managers)
-  emails_per_day: 3       # cold-email drafts/day (founders / C-suite / execs)
+  people_per_day: 5       # LinkedIn drafts/day (the engine's job — younger peers / senior ICs)
   search_size: 6          # people to ask for per company (perplexity), or records pulled (pdl)
   # How drafts get written:
   #   claude_cli -> shells out to `claude -p` (Claude Code). $0, no Anthropic API key.
@@ -19,13 +18,14 @@ run:
   research_model: sonar-pro
   reveal_emails: false                  # true = spend a PDL enrichment credit per queued person
 
-# PDL job_title_levels to keep (valid values: cxo, vp, director, manager, senior,
-# partner, owner, entry, training, unpaid). We target hiring managers + senior peers.
-seniority_include: ["director", "manager", "senior"]
+# LinkedIn crowd the engine drafts for: younger peers / senior ICs / managers.
+# (PDL job_title_levels for `pdl` mode — valid: cxo, vp, director, manager, senior, entry, …)
+seniority_include: ["senior", "manager"]
 
-# Post-filter: any person whose title contains one of these is routed to warm_path.csv,
-# never the cold queue (HARD CONSTRAINT #2).
-seniority_exclude_titles: ["founder", "co-founder", "ceo", "cto", "chief", "vp", "president", "owner"]
+# Seniors handled by EMAIL, which you write yourself. Any title containing one of these is
+# put on the digest's "email yourself" roster — never LinkedIn-drafted (HARD CONSTRAINT #2).
+seniority_exclude_titles: ["founder", "co-founder", "ceo", "cto", "chief", "vp", "president",
+                           "owner", "director", "head", "vice president"]
 
 # Broad role set — Alejandro is open to forward-deployed, solutions, applied-AI,
 # consulting, product and analyst roles. PDL matches these against job_title; the

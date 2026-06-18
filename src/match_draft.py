@@ -1,11 +1,11 @@
 """match_draft.py — the brain.
 
 Finds the single strongest genuine overlap between Alejandro and one target person, then
-drafts outreach in his voice. Two channels:
-  linkedin -> a warm-up comment + 2-3 DM options (for right-level peers / hiring managers)
-  email    -> a cold email (subject + body) for senior people (founders / C-suite / execs),
-              where a cold DM is weak but a sharp, specific email can land.
-Both return strict JSON.
+drafts a LinkedIn warm-up comment + 2-3 DM options in his voice. Returns strict JSON.
+
+This engine is LinkedIn-only: it drafts for right-level peers / senior ICs / managers.
+Senior people (founders / C-suite / directors / heads) are handled separately by email,
+which Alejandro writes himself — they never reach this drafter.
 
 Backends (cfg['run']['draft_backend']):
   claude_cli -> shells out to `claude -p` (Claude Code). No Anthropic API key; uses the
@@ -21,8 +21,7 @@ import re
 import shutil
 import subprocess
 
-# --- LinkedIn channel: warm-up comment + DM options -------------------------------------
-SYSTEM_LINKEDIN = """You are Alejandro's outreach engine. You are given his profile and fresh research on one
+SYSTEM = """You are Alejandro's outreach engine. You are given his profile and fresh research on one
 target person. Find the SINGLE strongest genuine overlap between them and write outreach
 in his voice.
 
@@ -40,30 +39,8 @@ Return STRICT JSON only, no prose, no code fences:
 {"tier":"A|B|C","angle":"<one line>","comment":"<warm-up comment>",
  "dms":["<dm option 1>","<dm option 2>"],"why":"<one line: which overlap it uses>"}"""
 
-# --- Email channel: cold email to a senior person ---------------------------------------
-SYSTEM_EMAIL = """You are Alejandro's cold-email writer. You are given his profile and fresh research on one
-SENIOR person (founder / C-suite / exec). A cold LinkedIn DM to them would be weak — write a
-short, specific cold email in his voice that earns a reply.
-
-Rules:
-- Find the SINGLE strongest genuine reason only HE could send THIS person. Discard generic.
-- Subject: <= 8 words, specific and intriguing — no clickbait, no "quick question", nothing
-  that reads like a mass blast.
-- Body: under 120 words. Open on THEM or their company's specific current moment/work — never
-  on himself. Give one concrete reason for reaching out, one line of real credibility (he
-  BUILDS and SELLS: shipped VisiMind and NadiaAI end-to-end, solo forward-deployed work), one
-  low-friction ask (15-min call, or a sharp question), and an easy out. Sign "— Alejandro".
-  No "I hope this finds you well", no flattery, no corporate filler.
-- If research is thin or you're unsure of a fact, lower the tier and say so. Never invent
-  facts, quotes, or links.
-
-Return STRICT JSON only, no prose, no code fences:
-{"tier":"A|B|C","subject":"<subject line>","body":"<email body>","why":"<one line: the reason it uses>"}"""
-
-_LOW_CONF_LINKEDIN = {"tier": "C", "angle": "", "comment": "", "dms": [],
-                      "why": "low_confidence: drafter returned no usable JSON"}
-_LOW_CONF_EMAIL = {"tier": "C", "subject": "", "body": "",
-                   "why": "low_confidence: drafter returned no usable JSON"}
+_LOW_CONF = {"tier": "C", "angle": "", "comment": "", "dms": [],
+             "why": "low_confidence: drafter returned no usable JSON"}
 
 
 def _build_user_message(profile: str, person: dict, research_text: str) -> str:
@@ -96,7 +73,8 @@ def _extract_json(text: str) -> dict:
         raise
 
 
-def _coerce_linkedin(data: dict) -> dict:
+def _coerce(data: dict) -> dict:
+    """Normalize to our contract, tolerating minor model drift."""
     dms = data.get("dms") or []
     if isinstance(dms, str):
         dms = [dms]
@@ -109,48 +87,30 @@ def _coerce_linkedin(data: dict) -> dict:
     }
 
 
-def _coerce_email(data: dict) -> dict:
-    return {
-        "tier": str(data.get("tier", "C")).strip().upper()[:1] or "C",
-        "subject": data.get("subject", "").strip(),
-        "body": data.get("body", "").strip(),
-        "why": data.get("why", "").strip(),
-    }
-
-
-# channel -> (system prompt, coerce fn, low-confidence default, mock fn)
-def _channel_spec(channel: str):
-    if channel == "email":
-        return SYSTEM_EMAIL, _coerce_email, _LOW_CONF_EMAIL, _mock_email
-    return SYSTEM_LINKEDIN, _coerce_linkedin, _LOW_CONF_LINKEDIN, _mock_linkedin
-
-
-def match_draft(profile: str, person: dict, research_text: str, cfg: dict,
-                use_mocks: bool = True, channel: str = "linkedin") -> dict:
-    """Return a draft dict. LinkedIn: {tier,angle,comment,dms[],why}. Email: {tier,subject,body,why}."""
-    system, coerce, low_conf, mock = _channel_spec(channel)
+def match_draft(profile: str, person: dict, research_text: str, cfg: dict, use_mocks: bool = True) -> dict:
+    """Return {tier, angle, comment, dms[], why}."""
     backend = "mock" if use_mocks else cfg["run"].get("draft_backend", "claude_cli")
     user_msg = _build_user_message(profile, person, research_text)
 
     if backend == "mock":
-        return mock(person)
+        return _mock_draft(person)
     if backend == "api":
-        return _draft_via_api(user_msg, cfg, person, system, coerce, low_conf, mock)
-    return _draft_via_cli(user_msg, cfg, person, system, coerce, low_conf, mock)
+        return _draft_via_api(user_msg, cfg, person)
+    return _draft_via_cli(user_msg, cfg, person)
 
 
 # --- claude_cli backend: `claude -p` (Claude Code, no API key) --------------------------
 
-def _draft_via_cli(user_msg, cfg, person, system, coerce, low_conf, mock) -> dict:
+def _draft_via_cli(user_msg: str, cfg: dict, person: dict) -> dict:
     """Draft by shelling out to Claude Code in non-interactive print mode."""
     claude = shutil.which("claude") or shutil.which("claude.cmd")
     if not claude:
         print("  [warn] `claude` CLI not found on PATH — falling back to mock draft.")
-        return mock(person)
+        return _mock_draft(person)
 
     base = [
         claude, "-p", user_msg,
-        "--system-prompt", system,
+        "--system-prompt", SYSTEM,
         "--output-format", "json",
         "--model", cfg["run"].get("draft_model", "claude-sonnet-4-6"),
         "--max-turns", "1",
@@ -183,16 +143,16 @@ def _draft_via_cli(user_msg, cfg, person, system, coerce, low_conf, mock) -> dic
         retry = list(base)
         retry[2] = user_msg + "\n\nReturn ONLY the JSON object specified. No other text."
         data = _run(retry)
-    return coerce(data) if data else dict(low_conf)
+    return _coerce(data) if data else dict(_LOW_CONF)
 
 
 # --- api backend: Anthropic SDK (optional fallback) -------------------------------------
 
-def _draft_via_api(user_msg, cfg, person, system, coerce, low_conf, mock) -> dict:
+def _draft_via_api(user_msg: str, cfg: dict, person: dict) -> dict:
     api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip() or None
     if not api_key:
         print("  [warn] draft_backend=api but ANTHROPIC_API_KEY is unset — using mock draft.")
-        return mock(person)
+        return _mock_draft(person)
 
     import anthropic
 
@@ -202,21 +162,21 @@ def _draft_via_api(user_msg, cfg, person, system, coerce, low_conf, mock) -> dic
         resp = client.messages.create(
             model=cfg["run"].get("draft_model", "claude-sonnet-4-6"),
             max_tokens=1024,
-            system=system + extra,
+            system=SYSTEM + extra,
             messages=[{"role": "user", "content": user_msg}],
         )
         return resp.content[0].text
 
     try:
-        return coerce(_extract_json(_call()))
+        return _coerce(_extract_json(_call()))
     except (json.JSONDecodeError, ValueError):
         try:
-            return coerce(_extract_json(_call("\n\nReturn ONLY the JSON object. No other text.")))
+            return _coerce(_extract_json(_call("\n\nReturn ONLY the JSON object. No other text.")))
         except (json.JSONDecodeError, ValueError):
-            return dict(low_conf)
+            return dict(_LOW_CONF)
 
 
-def _mock_linkedin(person: dict) -> dict:
+def _mock_draft(person: dict) -> dict:
     first = person["name"].split()[0]
     return {
         "tier": "A",
@@ -242,21 +202,4 @@ def _mock_linkedin(person: dict) -> dict:
             ),
         ],
         "why": "Overlap: their 'evals are the product' post vs. Alejandro's VisiMind eval-harness experience.",
-    }
-
-
-def _mock_email(person: dict) -> dict:
-    first = person["name"].split()[0]
-    return {
-        "tier": "A",
-        "subject": f"{person['company']}'s forward-deployed gap",
-        "body": (
-            f"{first} — I've been watching {person['company']}'s push into real customer "
-            f"deployments. I build AND sell: shipped VisiMind and NadiaAI end-to-end solo, the "
-            f"whole forward-deployed loop from first call to production. The bet that the "
-            f"integration layer is where deals are won or lost is exactly what I care about.\n\n"
-            f"Worth 15 minutes to compare notes on what actually survives real data? Happy to send "
-            f"a couple of specific thoughts first if that's easier.\n\n— Alejandro"
-        ),
-        "why": "Overlap: their company's forward-deployed motion vs. Alejandro's solo build+deploy track.",
     }

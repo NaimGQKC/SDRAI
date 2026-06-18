@@ -1,27 +1,27 @@
 # Hit-List Engine
 
-A personal outbound engine. Each morning it hands you a ready-to-execute **hit-list** at your
-target companies, each person with a deep dossier and a draft in your voice:
-- **LinkedIn** for right-level peers / hiring managers — a warm-up comment + 2–3 DM options.
-- **Email** for senior people (founders / C-suite) — a cold email (subject + body) with a
-  public address it found, because a cold DM to them is weak but a sharp email can land.
+A personal outbound engine focused on **LinkedIn**. Each morning it hands you a ready-to-execute
+hit-list of right-level **peers** at your target companies (senior ICs, engineers, team leads) —
+each with a deep dossier, a warm-up comment, and 2–3 DM options in your voice. You read, tweak,
+and **send by hand**.
 
-You read, tweak, and **send by hand**. The machine does the research and drafting; you do the
-human part.
+Senior people (founders / C-suite / directors / heads) are a different game — a cold DM to them
+is weak. The engine **doesn't draft** for them; it just lists them in an "email yourself" roster,
+which you write with Perplexity + Claude and send by email. Clear split: **engine = LinkedIn
+peers; you = senior emails.**
 
 ```
 discover → research → match+draft → digest → email → track
 ```
 
 ## Hard constraints
-1. **Never auto-sends anything.** No browser automation, no auto-connect/DM, no auto-emailing.
-   Every LinkedIn message and email is a draft you send by hand.
-2. **Channel by seniority.** Right-level peers / hiring managers (Head/Director of FDE/SE,
-   Senior/Staff SE/FDE, eng managers) → **LinkedIn** comment + DMs. Founders / C-suite / execs
-   → **cold email** (a DM to them is weak; a specific email isn't).
-3. **No fabrication.** Thin research → person is dropped, never guessed. Email addresses come
-   from real public sources only — never pattern-guessed.
-4. **Dedup.** Never queues anyone already in `tracker.csv`.
+1. **Never auto-sends anything.** No browser automation, no auto-connect/DM. Every LinkedIn
+   message is a draft you send by hand.
+2. **Channel by seniority.** Peers / senior ICs / managers → **LinkedIn** comment + DMs (the
+   engine drafts these). Founders / C-suite / directors / heads → **email roster** only: the
+   engine lists them, you research and write those emails yourself.
+3. **No fabrication.** Thin research → person is dropped, never guessed.
+4. **Dedup.** Never queues anyone already in `tracker.csv` (LinkedIn drafts and roster both).
 5. **Drafts for human review only.** Nothing is sent automatically.
 
 ## Discovery: who finds the people
@@ -74,8 +74,8 @@ profile/alejandro_profile.md  the "me" layer (read whole, passed to the model)
 people_seed.csv             seed-mode input: your list of people (name,company,…)
 src/discover.py             Perplexity finder / seed CSV / PDL search → people (+ warm-path split)
 src/research.py             Perplexity Sonar → recent intel per person
-src/match_draft.py          strongest overlap → LinkedIn comment+DMs OR cold email (strict JSON)
-src/digest.py               render hit-list as HTML (LinkedIn + email sections)
+src/match_draft.py          strongest overlap → LinkedIn comment + DMs (strict JSON)
+src/digest.py               render hit-list as HTML (LinkedIn drafts + email roster)
 src/deliver.py              Gmail SMTP
 src/tracker.py              CSV log, dedup, follow-up flags
 main.py                     orchestration (--mocks, --no-mocks, --limit)

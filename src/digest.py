@@ -1,7 +1,8 @@
 """digest.py — render the hit-list as a skimmable, mobile-friendly HTML email.
 
-Two sections: LinkedIn (warm-up comment + DMs for right-level peers) and Email (cold
-emails for senior people). Everything is a draft for human review — nothing auto-sends.
+Two sections: LinkedIn (warm-up comment + DMs for right-level peers — the drafted part)
+and an Email roster (senior people you write yourself, names + leads only). Nothing
+auto-sends.
 """
 from __future__ import annotations
 
@@ -36,12 +37,9 @@ _TEMPLATE = """<!DOCTYPE html>
   ol.dms { margin: 4px 0 0; padding-left: 20px; }
   ol.dms li { background: #f8f8f8; border-radius: 4px; padding: 8px 10px; margin-bottom: 6px;
               font-size: 14px; }
-  .addr { font-size: 14px; font-weight: 700; background: #eff6ff; border: 1px solid #bfdbfe;
-          border-radius: 6px; padding: 6px 10px; display: inline-block; margin: 2px 0 6px; }
-  .addr.miss { background: #fef2f2; border-color: #fecaca; font-weight: 600; color: #b91c1c; }
-  .subject { font-weight: 700; font-size: 14px; margin: 2px 0 6px; }
-  .ebody { background: #f8f8f8; border-left: 3px solid #2563eb; border-radius: 4px;
-           padding: 10px 12px; font-size: 14px; white-space: pre-wrap; }
+  .row { background: #fff; border: 1px solid #e4e4e7; border-radius: 8px; padding: 10px 14px;
+         margin-bottom: 8px; }
+  .row .who { font-size: 14px; }
   a.li { color: #0a66c2; text-decoration: none; font-size: 13px; }
   .links { font-size: 12px; margin: 0 0 8px; }
   .links a { color: #444; text-decoration: none; margin-right: 10px; }
@@ -57,7 +55,7 @@ _TEMPLATE = """<!DOCTYPE html>
 <div class="wrap">
   <div class="head">
     <h1>Hit-list — {{ date }}</h1>
-    <div class="sub">{{ linkedin_items|length }} LinkedIn · {{ email_items|length }} email.
+    <div class="sub">{{ linkedin_items|length }} LinkedIn drafts · {{ roster|length }} to email yourself.
       You send everything by hand — nothing is sent automatically.</div>
   </div>
 
@@ -98,22 +96,24 @@ _TEMPLATE = """<!DOCTYPE html>
   {% endfor %}
   {% endif %}
 
-  {% if email_items %}
-  <div class="sec">Email — senior people (send by hand)</div>
-  {% for it in email_items %}
-  <div class="card">
-    {{ head(it) }}
-    <div class="label">To</div>
-    {% if it.person.email %}<div class="addr">{{ it.person.email }}</div>
-    {% else %}<div class="addr miss">no public email found — check their GitHub commits / site</div>{% endif %}
-    {% if it.draft.subject %}<div class="label">Subject</div><div class="subject">{{ it.draft.subject }}</div>{% endif %}
-    {% if it.draft.body %}<div class="label">Body</div><div class="ebody">{{ it.draft.body }}</div>{% endif %}
-    {{ tail(it) }}
+  {% if roster %}
+  <div class="sec">Email yourself — founders / C-suite / directors</div>
+  <div class="sub" style="margin-bottom:10px;">Senior people. Write these with Perplexity + Claude
+    and email by hand — the engine only surfaces them.</div>
+  {% for p in roster %}
+  <div class="row">
+    <span class="who">{{ p.name }}</span>
+    <div class="meta">{{ p.title }} · {{ p.company }}
+      {% if p.location %}· {{ p.location }}{% endif %}
+      {% if p.linkedin %}· <a class="li" href="{{ p.linkedin }}">LinkedIn ↗</a>{% endif %}
+      {% if p.github %}· <a class="li" href="{{ p.github }}">GitHub ↗</a>{% endif %}
+      {% if p.twitter %}· <a class="li" href="{{ p.twitter }}">X ↗</a>{% endif %}
+    </div>
   </div>
   {% endfor %}
   {% endif %}
 
-  {% if not linkedin_items and not email_items %}
+  {% if not linkedin_items and not roster %}
   <div class="card"><p>No new people today. (Everyone found was already in the tracker, or
     nothing verifiable surfaced.)</p></div>
   {% endif %}
@@ -124,11 +124,7 @@ _TEMPLATE = """<!DOCTYPE html>
 </html>"""
 
 
-def build_digest(items: list[dict], date: str) -> str:
-    """items: [{person, research, draft, channel}, ...] -> HTML string."""
-    linkedin_items = [it for it in items if it.get("channel", "linkedin") != "email"]
-    email_items = [it for it in items if it.get("channel") == "email"]
+def build_digest(items: list[dict], roster: list[dict], date: str) -> str:
+    """items: drafted LinkedIn [{person,research,draft}], roster: senior person dicts."""
     env = Environment(loader=BaseLoader(), autoescape=True)
-    return env.from_string(_TEMPLATE).render(
-        linkedin_items=linkedin_items, email_items=email_items, date=date,
-    )
+    return env.from_string(_TEMPLATE).render(linkedin_items=items, roster=roster, date=date)

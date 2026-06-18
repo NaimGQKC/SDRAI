@@ -45,4 +45,4 @@ Spanish/EU citizen who did a Canadian business degree but ships code; trilingual
 - End on a low-friction ask (usually a 15-minute call), often with an easy out.
 
 ## Links (VERIFY before sending)
-VisiMind: https://visimind.vercel.app · Email: a.naim2004@gmail.com · LinkedIn + GitHub: **currently placeholders — replace with real URLs before any outreach.**
+VisiMind: https://visimind.vercel.app · Email: a.naim2004@gmail.com · LinkedIn: https://www.linkedin.com/in/alejandro-monge1/ · GitHub: https://github.com/NaimGQKC

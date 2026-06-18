@@ -18,8 +18,25 @@ seniority_include: ["head", "director", "senior", "manager"]
 # never the cold queue (HARD CONSTRAINT #2).
 seniority_exclude_titles: ["founder", "co-founder", "ceo", "cto", "chief", "vp", "president", "owner"]
 
+# Ordered by priority: main.py fills the daily list top-down and stops at
+# people_per_day, so European ops + strongest-match companies come first; the
+# US GEO/AEO names stay at the bottom as backfill / dedup overflow.
 targets:
+  # --- European GEO/AEO (the "I built your product" angle — VisiMind) ---
+  - {company: Peec AI,   domain: peec.ai,       roles: ["Forward Deployed Engineer", "Solutions Engineer", "Founding Engineer", "Solutions Architect"]}   # Berlin
+  - {company: Otterly,   domain: otterly.ai,    roles: ["Forward Deployed Engineer", "Solutions Engineer", "Founding Engineer"]}                          # Europe (Gartner Cool Vendor)
+
+  # --- European agentic / Claude-native (n8n + agentic-AI experience) ---
+  - {company: n8n,       domain: n8n.io,        roles: ["Solutions Engineer", "Forward Deployed Engineer", "Founding Engineer"]}                          # Berlin
+
+  # --- European AI-native with explicit forward-deployed programs ---
+  - {company: ElevenLabs, domain: elevenlabs.io, roles: ["Forward Deployed Engineer", "Solutions Engineer"]}                                              # London
+  - {company: Lovable,    domain: lovable.dev,   roles: ["Forward Deployed Engineer", "Solutions Engineer", "Founding Engineer"]}                         # Stockholm
+  - {company: Mistral AI, domain: mistral.ai,    roles: ["Forward Deployed Engineer", "Applied AI Engineer", "Solutions Engineer"]}                       # Paris / EMEA
+
+  # --- US GEO/AEO (still strong "I built your product" matches — backfill) ---
   - {company: Profound,  domain: tryprofound.com, roles: ["Forward Deployed Engineer", "Solutions Engineer", "Agent Engineer"]}
   - {company: AthenaHQ,  domain: athenahq.ai,     roles: ["Forward Deployed Engineer", "Solutions Engineer"]}
-  # add Evertune, Otterly, etc.
-  # - {company: Evertune, domain: evertune.ai, roles: ["Forward Deployed Engineer", "Solutions Engineer"]}
+
+  # Candidate to add once the domain is verified (several companies share the name):
+  # - {company: Prosper AI, domain: <verify>, roles: ["Forward Deployed Engineer"]}  # Barcelona — near your warm spot

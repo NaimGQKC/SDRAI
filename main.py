@@ -98,6 +98,25 @@ def run(use_mocks: bool, limit: int | None, open_html: bool = False) -> str:
             add_to_roster(person)
 
     source = cfg["run"].get("discovery_source", "seed")
+
+    # Diagnostic: run discovery across ALL targets and print who surfaced — no research,
+    # no drafting, no token needed. Flip run.discovery_probe: true to use it.
+    if cfg["run"].get("discovery_probe"):
+        print("[probe] discovery-only across all targets")
+        total = 0
+        for target in cfg["targets"]:
+            if source == "perplexity":
+                q, w = discover_mod.discover_via_perplexity(target, cfg, use_mocks=use_mocks)
+            elif source == "pdl":
+                q, w = discover_mod.discover(target, cfg, use_mocks=use_mocks)
+            else:
+                q, w = discover_mod.discover_from_seed(cfg)
+            who = "; ".join(f"{p['name']} ({p.get('title') or '?'})" for p in q + w) or "—"
+            print(f"[probe] {target['company']}: {len(q)} LinkedIn, {len(w)} email | {who}")
+            total += len(q) + len(w)
+        print(f"[probe] TOTAL people found: {total}")
+        return ""
+
     if source == "seed":
         # Discovery is a flat, pre-built list (you / Clay / an agent). No API, no credits.
         process(*discover_mod.discover_from_seed(cfg))

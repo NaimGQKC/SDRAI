@@ -48,6 +48,11 @@ _CLI_GIVE_UP = 2
 _cli_hard_fails = 0
 
 
+def drafting_broken() -> bool:
+    """True once `claude -p` has hard-failed enough that the run should stop early."""
+    return _cli_hard_fails >= _CLI_GIVE_UP
+
+
 def _build_user_message(profile: str, person: dict, research_text: str) -> str:
     return (
         "=== ALEJANDRO'S PROFILE ===\n"

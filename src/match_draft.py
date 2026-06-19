@@ -123,7 +123,8 @@ def _draft_via_cli(user_msg: str, cfg: dict, person: dict) -> dict:
             print(f"  [warn] claude -p failed: {e}")
             return None
         if proc.returncode != 0:
-            print(f"  [warn] claude -p exited {proc.returncode}: {proc.stderr.strip()[:200]}")
+            print(f"  [warn] claude -p exited {proc.returncode}: "
+                  f"stderr={proc.stderr.strip()[:300]!r} stdout={proc.stdout.strip()[:300]!r}")
             return None
         try:
             envelope = json.loads(proc.stdout)

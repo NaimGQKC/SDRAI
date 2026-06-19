@@ -192,18 +192,16 @@ def discover_from_seed(cfg: dict, seed_path: str | None = None) -> tuple[list[di
 
 
 _DISCOVER_PROMPT = (
-    "Find up to {n} real people who CURRENTLY work at {company} ({domain}) whose role is one "
-    "of: {roles}. Target individual contributors and team leads / managers — the peer crowd. "
-    "Do NOT return directors, heads of department, VPs, founders or C-suite (those are handled "
-    "separately).\n\n"
-    "For EACH person return: name, their current title, any public profile URLs you can "
-    "actually confirm (linkedin, github, twitter), and one `source` URL that proves they work "
-    "there (company page, their own post/talk, GitHub, press).\n\n"
-    "HARD RULES: only include people you can verify from a real, current public source. Do NOT "
-    "invent names, titles, or URLs. Do NOT pad to reach {n}. If you cannot confirm anyone, "
-    "return an empty list.\n\n"
-    'Return STRICT JSON only, no prose: {{"people":[{{"name":"","title":"","linkedin":"",'
-    '"github":"","twitter":"","source":""}}]}}'
+    "List up to {n} engineers or technical staff who currently work at {company} ({domain}) and "
+    "have a PUBLIC professional footprint — GitHub, conference talks, blog posts, a public "
+    "LinkedIn, podcasts, or press. Focus on individual contributors and team leads working on: "
+    "{roles}. These are public professionals; name them.\n\n"
+    "For each person give: name, current title, any public profile URLs you can find (linkedin, "
+    "github, twitter), and one `source` URL. Use real people you can find in public sources — "
+    "never fabricate a name or URL, and prefer returning fewer real people over padding. Do not "
+    "include directors, heads, VPs, founders or C-suite (handled separately).\n\n"
+    'Return ONLY JSON, no prose: {{"people":[{{"name":"","title":"","linkedin":"","github":"",'
+    '"twitter":"","source":""}}]}}'
 )
 
 
@@ -253,7 +251,10 @@ def _search_perplexity(target: dict, cfg: dict, api_key: str) -> list[dict]:
     except (requests.RequestException, KeyError, IndexError) as e:
         print(f"  [warn] Perplexity discovery failed for {target['company']}: {e}")
         return []
-    return _parse_pplx_people(content)
+    people = _parse_pplx_people(content)
+    if not people:  # diagnostic: see what Sonar actually said when we get nothing
+        print(f"  [warn] no people parsed for {target['company']}; raw: {content[:400]!r}")
+    return people
 
 
 def _parse_pplx_people(content: str) -> list[dict]:

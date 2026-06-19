@@ -194,8 +194,11 @@ def discover_from_seed(cfg: dict, seed_path: str | None = None) -> tuple[list[di
 _DISCOVER_SYSTEM = (
     "You are a precise sourcing researcher with live web access. Search hard across the "
     "company's team/about page, its GitHub organisation, LinkedIn, conference speaker lists, "
-    "podcasts, blog author bylines and press. Return REAL, currently-employed people you can "
-    "find in public sources. Never invent names, titles, or URLs."
+    "podcasts, blog author bylines and press.\n"
+    "Only return people you can confirm are CURRENT employees of the named company from a "
+    "public source. EXCLUDE advisors, investors, board members, former employees, and anyone "
+    "you are not confident currently works there — it is better to return fewer, certain people "
+    "than to guess. Never invent names, titles, or URLs."
 )
 
 _DISCOVER_USER = (
@@ -284,6 +287,7 @@ def _search_perplexity(target: dict, cfg: dict, api_key: str) -> list[dict]:
     company, domain = target["company"], target["domain"]
     attempts = [
         (_DISCOVER_USER.format(n=n, company=company, domain=domain), True),
+        (_DISCOVER_USER_LOOSE.format(company=company, domain=domain), True),
         (_DISCOVER_USER_LOOSE.format(company=company, domain=domain), False),
     ]
     last_raw = ""

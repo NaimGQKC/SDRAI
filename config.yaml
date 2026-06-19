@@ -6,7 +6,7 @@ run:
   #   seed       -> read people_seed.csv (you / Clay export fill it). $0, fully manual.
   #   pdl        -> People Data Labs Person Search API (needs PDL_API_KEY; free tier is tiny).
   discovery_source: perplexity
-  discovery_probe: true   # TEMP diagnostic: discovery-only across all targets (no draft/token)
+  discovery_probe: false  # diagnostic: discovery-only across all targets (no draft/token)
   people_per_day: 5       # LinkedIn drafts/day (the engine's job — younger peers / senior ICs)
   search_size: 6          # people to ask for per company (perplexity), or records pulled (pdl)
   # How drafts get written:

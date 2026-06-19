@@ -42,6 +42,11 @@ Return STRICT JSON only, no prose, no code fences:
 _LOW_CONF = {"tier": "C", "angle": "", "comment": "", "dms": [],
              "why": "low_confidence: drafter returned no usable JSON"}
 
+# Circuit breaker: if `claude -p` hard-fails (auth/usage/etc.) this many times in one run,
+# stop calling it so a broken CLAUDE_CODE_OAUTH_TOKEN can't drag a run out for 30 minutes.
+_CLI_GIVE_UP = 2
+_cli_hard_fails = 0
+
 
 def _build_user_message(profile: str, person: dict, research_text: str) -> str:
     return (
@@ -103,10 +108,14 @@ def match_draft(profile: str, person: dict, research_text: str, cfg: dict, use_m
 
 def _draft_via_cli(user_msg: str, cfg: dict, person: dict) -> dict:
     """Draft by shelling out to Claude Code in non-interactive print mode."""
+    global _cli_hard_fails
     claude = shutil.which("claude") or shutil.which("claude.cmd")
     if not claude:
         print("  [warn] `claude` CLI not found on PATH — falling back to mock draft.")
         return _mock_draft(person)
+    if _cli_hard_fails >= _CLI_GIVE_UP:
+        # Already failed hard twice this run — almost certainly a bad token. Don't keep trying.
+        return dict(_LOW_CONF)
 
     base = [
         claude, "-p", user_msg,
@@ -116,34 +125,38 @@ def _draft_via_cli(user_msg: str, cfg: dict, person: dict) -> dict:
         "--max-turns", "1",
     ]
 
-    def _run(args: list[str]) -> dict | None:
+    def _run(args: list[str]) -> tuple[dict | None, bool]:
+        """Returns (parsed_or_none, hard_fail). hard_fail = process error (don't retry)."""
         try:
-            proc = subprocess.run(args, capture_output=True, text=True, timeout=180)
+            proc = subprocess.run(args, capture_output=True, text=True, timeout=120)
         except (subprocess.TimeoutExpired, OSError) as e:
             print(f"  [warn] claude -p failed: {e}")
-            return None
+            return None, True
         if proc.returncode != 0:
             print(f"  [warn] claude -p exited {proc.returncode}: "
                   f"stderr={proc.stderr.strip()[:300]!r} stdout={proc.stdout.strip()[:300]!r}")
-            return None
+            return None, True
         try:
             envelope = json.loads(proc.stdout)
         except json.JSONDecodeError:
             envelope = {"result": proc.stdout}
         payload = envelope.get("structured_output")
         if isinstance(payload, dict):
-            return payload
+            return payload, False
         text = envelope.get("result") if isinstance(envelope, dict) else proc.stdout
         try:
-            return _extract_json(text or "")
+            return _extract_json(text or ""), False
         except (json.JSONDecodeError, ValueError):
-            return None
+            return None, False  # call worked, JSON missing — worth one retry
 
-    data = _run(base)
-    if data is None:
+    data, hard_fail = _run(base)
+    if hard_fail:
+        _cli_hard_fails += 1
+        return dict(_LOW_CONF)
+    if data is None:  # only retry a parse miss, never a hard failure
         retry = list(base)
         retry[2] = user_msg + "\n\nReturn ONLY the JSON object specified. No other text."
-        data = _run(retry)
+        data, _ = _run(retry)
     return _coerce(data) if data else dict(_LOW_CONF)
 
 

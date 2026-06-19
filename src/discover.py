@@ -191,18 +191,47 @@ def discover_from_seed(cfg: dict, seed_path: str | None = None) -> tuple[list[di
     return queue, warm_path
 
 
-_DISCOVER_PROMPT = (
-    "List up to {n} engineers or technical staff who currently work at {company} ({domain}) and "
-    "have a PUBLIC professional footprint — GitHub, conference talks, blog posts, a public "
-    "LinkedIn, podcasts, or press. Focus on individual contributors and team leads working on: "
-    "{roles}. These are public professionals; name them.\n\n"
-    "For each person give: name, current title, any public profile URLs you can find (linkedin, "
-    "github, twitter), and one `source` URL. Use real people you can find in public sources — "
-    "never fabricate a name or URL, and prefer returning fewer real people over padding. Do not "
-    "include directors, heads, VPs, founders or C-suite (handled separately).\n\n"
-    'Return ONLY JSON, no prose: {{"people":[{{"name":"","title":"","linkedin":"","github":"",'
-    '"twitter":"","source":""}}]}}'
+_DISCOVER_SYSTEM = (
+    "You are a precise sourcing researcher with live web access. Search hard across the "
+    "company's team/about page, its GitHub organisation, LinkedIn, conference speaker lists, "
+    "podcasts, blog author bylines and press. Return REAL, currently-employed people you can "
+    "find in public sources. Never invent names, titles, or URLs."
 )
+
+_DISCOVER_USER = (
+    "Find up to {n} people who currently work at {company} ({domain}) in engineering, product, "
+    "solutions / forward-deployed, applied-AI or related technical roles. For each, give their "
+    "full name, current title, and any public profile links you can find (LinkedIn, GitHub, X). "
+    "Name real people from public sources — founders, engineers and product folks all count."
+)
+
+_DISCOVER_USER_LOOSE = (
+    "Name real people who currently work at {company} ({domain}). For each give full name, "
+    "current title, and any LinkedIn or GitHub link you can find. Search their website team "
+    "page, GitHub organisation and LinkedIn. Even a name + role from one credible source counts."
+)
+
+# Structured-output schema so Sonar returns parseable JSON without us suppressing its search.
+_PEOPLE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "people": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "title": {"type": "string"},
+                    "linkedin": {"type": "string"},
+                    "github": {"type": "string"},
+                    "twitter": {"type": "string"},
+                },
+                "required": ["name"],
+            },
+        }
+    },
+    "required": ["people"],
+}
 
 
 def discover_via_perplexity(target: dict, cfg: dict, use_mocks: bool = True) -> tuple[list[dict], list[dict]]:
@@ -231,30 +260,45 @@ def discover_via_perplexity(target: dict, cfg: dict, use_mocks: bool = True) -> 
     return queue, warm_path
 
 
-def _search_perplexity(target: dict, cfg: dict, api_key: str) -> list[dict]:
-    n = max(3, int(cfg["run"].get("search_size") or cfg["run"]["people_per_day"]))
-    roles = ", ".join(target.get("roles", [])) or "engineering / solutions / product"
-    prompt = _DISCOVER_PROMPT.format(company=target["company"], domain=target["domain"], roles=roles, n=n)
+def _pplx_people_call(prompt: str, cfg: dict, api_key: str, use_schema: bool) -> str:
+    """One Perplexity chat call; returns the message content (raises on HTTP error)."""
     body = {
         "model": cfg["run"]["research_model"],
         "messages": [
-            {"role": "system", "content": "You are a precise sourcing researcher. Return only "
-             "verifiable people, each with a real source URL. Never invent names."},
+            {"role": "system", "content": _DISCOVER_SYSTEM},
             {"role": "user", "content": prompt},
         ],
     }
+    if use_schema:
+        body["response_format"] = {"type": "json_schema", "json_schema": {"schema": _PEOPLE_SCHEMA}}
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    try:
-        resp = requests.post(PPLX_URL, json=body, headers=headers, timeout=60)
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-    except (requests.RequestException, KeyError, IndexError) as e:
-        print(f"  [warn] Perplexity discovery failed for {target['company']}: {e}")
-        return []
-    people = _parse_pplx_people(content)
-    if not people:  # diagnostic: see what Sonar actually said when we get nothing
-        print(f"  [warn] no people parsed for {target['company']}; raw: {content[:400]!r}")
-    return people
+    resp = requests.post(PPLX_URL, json=body, headers=headers, timeout=90)
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"]
+
+
+def _search_perplexity(target: dict, cfg: dict, api_key: str) -> list[dict]:
+    """Find people at one company. Tries a search-first structured query, then a looser
+    fallback if the first comes back empty. Returns the first non-empty result."""
+    n = max(8, int(cfg["run"].get("search_size") or cfg["run"]["people_per_day"]))
+    company, domain = target["company"], target["domain"]
+    attempts = [
+        (_DISCOVER_USER.format(n=n, company=company, domain=domain), True),
+        (_DISCOVER_USER_LOOSE.format(company=company, domain=domain), False),
+    ]
+    last_raw = ""
+    for prompt, use_schema in attempts:
+        try:
+            content = _pplx_people_call(prompt, cfg, api_key, use_schema)
+        except requests.RequestException as e:
+            print(f"  [warn] Perplexity error for {company} (schema={use_schema}): {e}")
+            continue
+        people = _parse_pplx_people(content)
+        if people:
+            return people
+        last_raw = content
+    print(f"  [warn] no people found for {company}; last raw: {last_raw[:300]!r}")
+    return []
 
 
 def _parse_pplx_people(content: str) -> list[dict]:

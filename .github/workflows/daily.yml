@@ -35,13 +35,17 @@ jobs:
       - name: Run engine
         env:
           PYTHONUNBUFFERED: "1"   # stream engine logs live (don't buffer until exit)
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Raw secret; we strip whitespace below because the claude CLI reads the token
+          # verbatim and a stray trailing newline becomes an invalid bearer token (401).
+          CLAUDE_CODE_OAUTH_TOKEN_RAW: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PERPLEXITY_API_KEY:      ${{ secrets.PERPLEXITY_API_KEY }}
           PDL_API_KEY:             ${{ secrets.PDL_API_KEY }}
           GMAIL_ADDRESS:           ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD:      ${{ secrets.GMAIL_APP_PASSWORD }}
           DIGEST_TO:               ${{ secrets.DIGEST_TO }}
-        run: python main.py --no-mocks
+        run: |
+          export CLAUDE_CODE_OAUTH_TOKEN="$(printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN_RAW" | tr -d '[:space:]')"
+          python main.py --no-mocks
 
       - name: Commit tracker back
         run: |

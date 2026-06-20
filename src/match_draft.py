@@ -46,11 +46,23 @@ _LOW_CONF = {"tier": "C", "angle": "", "comment": "", "dms": [],
 # stop calling it so a broken CLAUDE_CODE_OAUTH_TOKEN can't drag a run out for 30 minutes.
 _CLI_GIVE_UP = 2
 _cli_hard_fails = 0
+_last_cli_error = ""
 
 
 def drafting_broken() -> bool:
     """True once `claude -p` has hard-failed enough that the run should stop early."""
     return _cli_hard_fails >= _CLI_GIVE_UP
+
+
+def last_cli_error() -> str:
+    """Human-readable reason the drafter stopped (auth vs usage limit vs other)."""
+    blob = _last_cli_error
+    if "401" in blob or "invalid bearer" in blob.lower():
+        return "Claude auth failed (401) — check the CLAUDE_CODE_OAUTH_TOKEN secret."
+    if "429" in blob or "limit" in blob.lower():
+        return ("Claude usage/session limit hit — the token is fine; drafting resumes once "
+                "your Claude plan's limit resets.")
+    return f"claude -p failed: {blob[:160]}" if blob else "claude -p failed."
 
 
 def _build_user_message(profile: str, person: dict, research_text: str) -> str:
@@ -138,6 +150,8 @@ def _draft_via_cli(user_msg: str, cfg: dict, person: dict) -> dict:
             print(f"  [warn] claude -p failed: {e}")
             return None, True
         if proc.returncode != 0:
+            global _last_cli_error
+            _last_cli_error = (proc.stdout or proc.stderr or "").strip()
             print(f"  [warn] claude -p exited {proc.returncode}: "
                   f"stderr={proc.stderr.strip()[:300]!r} stdout={proc.stdout.strip()[:300]!r}")
             return None, True

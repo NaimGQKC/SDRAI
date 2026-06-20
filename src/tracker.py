@@ -18,9 +18,16 @@ _TRACKER_FIELDS = ["date", "name", "company", "channel", "linkedin", "email", "t
 
 
 def _ensure(path: str, fields: list[str]) -> None:
-    if not os.path.exists(path):
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(fields)
+    """Create the CSV with the right header. If an OLD header is present (e.g. from before
+    the channel/email columns), reset to the current header — a shifted header silently
+    breaks dedup under DictReader, and the stale rows can't be realigned reliably."""
+    if os.path.exists(path):
+        with open(path, newline="", encoding="utf-8") as f:
+            current = (f.readline().strip() == ",".join(fields))
+        if current:
+            return
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        csv.writer(f).writerow(fields)
 
 
 def _seen_keys(path: str, col: str) -> set[str]:

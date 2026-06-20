@@ -126,8 +126,7 @@ def run(use_mocks: bool, limit: int | None, open_html: bool = False) -> str:
             if len(items) >= target_count:
                 break
             if match_mod.drafting_broken():
-                print("[abort] drafting backend keeps failing — check CLAUDE_CODE_OAUTH_TOKEN. "
-                      "Stopping early.")
+                print(f"[abort] drafting stopped early — {match_mod.last_cli_error()}")
                 break
             if source == "perplexity":
                 queue, warm_path = discover_mod.discover_via_perplexity(target, cfg, use_mocks=use_mocks)
